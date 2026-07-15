@@ -13,41 +13,23 @@ const ServiceLogo = ({ type }: { type: string; color?: string }) => {
   switch (type) {
     case 'jio_recharge':
       return (
-        <div className="w-12 h-12 rounded-full bg-[#0f3cc9] flex items-center justify-center shadow-sm">
-          <span className="text-white font-extrabold text-[15px] italic tracking-tight">Jio</span>
-        </div>
+        <img src="/jio-logo.svg" alt="Jio" className="w-12 h-12 rounded-full object-cover shadow-sm bg-white" />
       );
     case 'airtel_recharge':
       return (
-        <div className="w-12 h-12 rounded-full bg-[#e21226] flex items-center justify-center shadow-sm">
-          <span className="text-white font-black text-xl leading-none">a</span>
-        </div>
+        <img src="/airtel-logo.svg" alt="Airtel" className="w-12 h-12 rounded-full object-cover shadow-sm bg-white" />
       );
     case 'vi_recharge':
       return (
-        <div className="w-12 h-12 rounded-full bg-[#eb0029] flex items-center justify-center shadow-sm">
-          <span className="text-white font-black text-lg italic leading-none">vi</span>
-        </div>
+        <img src="/vi-logo.svg" alt="VI" className="w-12 h-12 rounded-full object-cover shadow-sm bg-white" />
       );
     case 'bsnl_recharge':
       return (
-        <div className="w-12 h-12 rounded-full bg-[#ffcc00] flex items-center justify-center shadow-sm border border-slate-100">
-          <span className="text-[#0f68b3] font-black text-xs tracking-tighter">BSNL</span>
-        </div>
+        <img src="/bsnl-logo.svg" alt="BSNL" className="w-12 h-12 rounded-full object-cover shadow-sm bg-white" />
       );
     case 'aeps_withdrawal':
       return (
-        <div className="w-12 h-12 rounded-full bg-[#10b981] flex items-center justify-center text-white shadow-sm">
-          <svg className="w-6 h-6 stroke-[2.5]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 2a10 10 0 0 0-7.3 3.1" />
-            <path d="M12 2a10 10 0 0 1 7.3 3.1" />
-            <path d="M12 2v20" />
-            <path d="M17 12a5 5 0 0 1-5 5" />
-            <path d="M12 7a5 5 0 0 1 5 5" />
-            <path d="M12 17a5 5 0 0 1-5-5" />
-            <path d="M7 12a5 5 0 0 1 5-5" />
-          </svg>
-        </div>
+        <img src="/aeps-logo.svg" alt="AEPS" className="w-12 h-12 rounded-full object-cover shadow-sm bg-white" />
       );
     case 'money_transfer':
       return (
@@ -108,25 +90,22 @@ const WalletIcon = ({ name, icon, color }: { name: string; icon?: string | null;
   }
   if (cleanIcon === 'fino' || cleanName.includes('fino')) {
     return (
-      <div className="w-9 h-9 rounded-xl flex items-center justify-center shadow-sm" style={{ backgroundColor: bgCol, color: textCol }}>
-        {/* Star Icon for Fino */}
-        <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
-          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-        </svg>
+      <div className="w-9 h-9 rounded-xl overflow-hidden shadow-sm flex items-center justify-center" style={{ backgroundColor: bgCol }}>
+        <img src="/fino-logo.svg" alt="Fino" className="w-full h-full object-cover" />
       </div>
     );
   }
   if (cleanIcon === 'jio' || cleanName.includes('jio')) {
     return (
-      <div className="w-9 h-9 rounded-full bg-[#0f3cc9] flex items-center justify-center shadow-sm border border-white">
-        <span className="text-white font-extrabold text-[10px] italic tracking-tight">Jio</span>
+      <div className="w-9 h-9 rounded-full overflow-hidden shadow-sm border border-white bg-white">
+        <img src="/jio-logo.svg" alt="Jio" className="w-full h-full object-contain" />
       </div>
     );
   }
   if (cleanIcon === 'airtel' || cleanName.includes('airtel') || cleanName.includes('lapu')) {
     return (
-      <div className="w-9 h-9 rounded-full bg-[#e21226] flex items-center justify-center shadow-sm border border-white">
-        <span className="text-white font-black text-[15px] leading-none">a</span>
+      <div className="w-9 h-9 rounded-full overflow-hidden shadow-sm border border-white bg-white">
+        <img src="/airtel-logo.svg" alt="Airtel" className="w-full h-full object-contain" />
       </div>
     );
   }
