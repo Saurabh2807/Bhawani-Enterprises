@@ -181,16 +181,16 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trigger_set_transaction_date BEFORE INSERT ON transactions FOR EACH ROW EXECUTE FUNCTION set_transaction_date();
 
 -- SEED DATA FOR SERVICES
-INSERT INTO services (name, type, color, is_active, sort_order, quick_amounts, requires_wallet_selection) VALUES
-('Jio Recharge', 'jio_recharge', '#0f3cc9', true, 1, ARRAY[149, 199, 239, 249, 299, 349, 399, 449, 599, 719, 799, 999], true),
-('Airtel Recharge', 'airtel_recharge', '#e21226', true, 2, ARRAY[149, 199, 239, 249, 299, 349, 399, 449, 599, 719, 799, 999], true),
-('VI Recharge', 'vi_recharge', '#eb0029', true, 3, ARRAY[149, 199, 239, 249, 299, 349, 399, 449, 599, 719, 799, 999], true),
-('BSNL Recharge', 'bsnl_recharge', '#0f68b3', true, 4, ARRAY[149, 199, 239, 249, 299, 349, 399, 449, 599, 719, 799, 999], true),
-('AEPS Cash Withdrawal', 'aeps_withdrawal', '#10b981', true, 5, ARRAY[500, 1000, 1500, 2000, 2500, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000], false),
-('Money Transfer', 'money_transfer', '#3b82f6', true, 6, ARRAY[500, 1000, 1500, 2000, 2500, 3000, 5000, 7000, 10000], false),
-('Electricity Bill Payment', 'electricity_bill', '#0d9488', true, 7, ARRAY[]::integer[], true),
-('Balance Enquiry', 'balance_enquiry', '#f97316', true, 8, ARRAY[]::integer[], false),
-('Loan Repayment', 'loan_repayment', '#8b5cf6', true, 9, ARRAY[]::integer[], true);
+INSERT INTO services (id, name, type, color, is_active, sort_order, quick_amounts, requires_wallet_selection) VALUES
+('e18b0cbb-1a6e-4266-af61-6c9ec11dedad', 'Jio Recharge', 'jio_recharge', '#0f3cc9', true, 1, ARRAY[149, 199, 239, 249, 299, 349, 399, 449, 599, 719, 799, 999], true),
+('a0f7e4df-cb1b-4f9e-a89e-2dc32e2fb420', 'Airtel Recharge', 'airtel_recharge', '#e21226', true, 2, ARRAY[149, 199, 239, 249, 299, 349, 399, 449, 599, 719, 799, 999], true),
+('d6e8790b-6a15-4fa0-82a1-12c8a0c20ab8', 'VI Recharge', 'vi_recharge', '#eb0029', true, 3, ARRAY[149, 199, 239, 249, 299, 349, 399, 449, 599, 719, 799, 999], true),
+('f0a202d9-1b32-47de-a89a-dc2cf9bc10ab', 'BSNL Recharge', 'bsnl_recharge', '#0f68b3', true, 4, ARRAY[149, 199, 239, 249, 299, 349, 399, 449, 599, 719, 799, 999], true),
+('b861219b-c40d-4560-84a2-2ab74d4715bd', 'AEPS Cash Withdrawal', 'aeps_withdrawal', '#10b981', true, 5, ARRAY[500, 1000, 1500, 2000, 2500, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000], false),
+('a3746c82-126c-48be-88e9-abfcd651121d', 'Money Transfer', 'money_transfer', '#3b82f6', true, 6, ARRAY[500, 1000, 1500, 2000, 2500, 3000, 5000, 7000, 10000], false),
+('c1ab8d09-1a22-4844-88d9-2f2ab237cb01', 'Electricity Bill Payment', 'electricity_bill', '#0d9488', true, 7, ARRAY[]::integer[], true),
+('d86212ea-c9be-482d-88b9-fbcd812ab2bd', 'Balance Enquiry', 'balance_enquiry', '#f97316', true, 8, ARRAY[]::integer[], false),
+('f81ab230-1cba-4bb1-88f9-abcd3a401cba', 'Loan Repayment', 'loan_repayment', '#8b5cf6', true, 9, ARRAY[]::integer[], true);
 
 -- SEED DATA FOR SHOP SETTINGS
 INSERT INTO settings (key, value) VALUES
