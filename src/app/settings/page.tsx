@@ -360,7 +360,7 @@ export default function SettingsPage() {
           {activeSection === 'wallets' && (
             <div className="p-4 bg-white space-y-4 animate-slideDown">
               <div className="space-y-2 divide-y divide-slate-100 max-h-[220px] overflow-y-auto">
-                {wallets.map((w) => (
+                {wallets.filter(w => !['phonepe', 'google pay', 'gpay', 'navi'].includes(w.name.toLowerCase().trim())).map((w) => (
                   <div key={w.id} className="flex justify-between items-center py-2.5 first:pt-0 last:pb-0">
                     <span className="text-xs font-bold text-slate-800">{w.name}</span>
                     <div className="flex gap-2">

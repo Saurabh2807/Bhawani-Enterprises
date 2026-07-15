@@ -538,6 +538,31 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         await db.settings.add({ key: 'shop_logo', value: '', created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
       }
 
+      // Self-heal: Ensure system wallets (PhonePe, Google Pay, Navi) exist in the database
+      const existingWallets = await db.wallets.toArray();
+      const systemWallets = [
+        { name: 'PhonePe', provider: 'PhonePe' as const, icon: 'phonepe', color: '#5f259f' },
+        { name: 'Google Pay', provider: 'Google Pay' as const, icon: 'google-pay', color: '#1a73e8' },
+        { name: 'Navi', provider: 'Other' as const, icon: 'landmark', color: '#0d9488' }
+      ];
+      for (const sysW of systemWallets) {
+        if (!existingWallets.some(w => w.name.toLowerCase().trim() === sysW.name.toLowerCase().trim())) {
+          const newW: Wallet = {
+            id: crypto.randomUUID(),
+            name: sysW.name,
+            provider: sysW.provider,
+            icon: sysW.icon,
+            color: sysW.color,
+            is_active: 1,
+            sort_order: existingWallets.length + 10,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+          await db.wallets.add(newW);
+          await queueSync('wallets', 'INSERT', newW.id, newW);
+        }
+      }
+
       // If we are online, trigger an initial full sync from Supabase
       if (isOnline && isSupabaseConfigured()) {
         await pullLatest();
@@ -1132,8 +1157,20 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       // 3. Create wallets and write their opening ledger entries
       const createdWalletMap: Record<string, string> = {}; // Name -> UUID
 
-      for (let i = 0; i < initialWallets.length; i++) {
-        const wallet = initialWallets[i];
+      const finalWalletsToCreate = [...initialWallets];
+      const systemWalletsToSeed = [
+        { name: 'PhonePe', balance: 0 },
+        { name: 'Google Pay', balance: 0 },
+        { name: 'Navi', balance: 0 }
+      ];
+      for (const sysW of systemWalletsToSeed) {
+        if (!finalWalletsToCreate.some(w => w.name.toLowerCase().trim() === sysW.name.toLowerCase().trim())) {
+          finalWalletsToCreate.push(sysW);
+        }
+      }
+
+      for (let i = 0; i < finalWalletsToCreate.length; i++) {
+        const wallet = finalWalletsToCreate[i];
         const walletId = crypto.randomUUID();
         createdWalletMap[wallet.name] = walletId;
 
@@ -1171,6 +1208,10 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           provider = 'Spice Money';
           icon = 'spice-money';
           color = '#ff6600';
+        } else if (lowerName.includes('navi')) {
+          provider = 'Other';
+          icon = 'landmark';
+          color = '#0d9488';
         }
 
         const newWallet: Wallet = {

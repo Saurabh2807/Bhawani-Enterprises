@@ -300,7 +300,9 @@ export default function HomePage() {
             </div>
 
             {/* Wallet Balances */}
-            {wallets.map((wallet) => (
+            {wallets
+              .filter(w => !['phonepe', 'google pay', 'gpay', 'navi'].includes(w.name.toLowerCase().trim()))
+              .map((wallet) => (
               <div
                 key={wallet.id}
                 className="flex-shrink-0 w-36 border rounded-[20px] p-4 snap-start shadow-sm flex flex-col justify-between transition-all"

@@ -267,12 +267,16 @@ export default function WalletsPage() {
             <div className="space-y-3">
               <h4 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider px-1">Wallets</h4>
               
-              {wallets.length === 0 ? (
-                <div className="p-8 bg-slate-50 border border-dashed border-slate-200 rounded-[20px] text-center text-slate-400 text-sm font-semibold">
-                  No wallets set up yet. Go to Settings to add wallets.
-                </div>
-              ) : (
-                wallets.map((wallet) => {
+              {(() => {
+                const displayWallets = wallets.filter(w => !['phonepe', 'google pay', 'gpay', 'navi'].includes(w.name.toLowerCase().trim()));
+                if (displayWallets.length === 0) {
+                  return (
+                    <div className="p-8 bg-slate-50 border border-dashed border-slate-200 rounded-[20px] text-center text-slate-400 text-sm font-semibold">
+                      No wallets set up yet. Go to Settings to add wallets.
+                    </div>
+                  );
+                }
+                return displayWallets.map((wallet) => {
                   const bal = walletBalances[wallet.id] || 0;
                   return (
                     <div
@@ -308,8 +312,8 @@ export default function WalletsPage() {
                       </div>
                     </div>
                   );
-                })
-              )}
+                });
+              })()}
             </div>
           </TabsContent>
 
@@ -341,7 +345,7 @@ export default function WalletsPage() {
                 >
                   <option value="">Select source</option>
                   <option value="CASH">Cash in Shop (₹{cashBalance.toLocaleString('en-IN')})</option>
-                  {wallets.map((w) => (
+                  {wallets.filter(w => !['phonepe', 'google pay', 'gpay', 'navi'].includes(w.name.toLowerCase().trim())).map((w) => (
                     <option key={w.id} value={w.id}>
                       {w.name} (₹{(walletBalances[w.id] || 0).toLocaleString('en-IN')})
                     </option>
@@ -367,7 +371,7 @@ export default function WalletsPage() {
                 >
                   <option value="">Select destination</option>
                   <option value="CASH">Cash in Shop (₹{cashBalance.toLocaleString('en-IN')})</option>
-                  {wallets.map((w) => (
+                  {wallets.filter(w => !['phonepe', 'google pay', 'gpay', 'navi'].includes(w.name.toLowerCase().trim())).map((w) => (
                     <option key={w.id} value={w.id}>
                       {w.name} (₹{(walletBalances[w.id] || 0).toLocaleString('en-IN')})
                     </option>
