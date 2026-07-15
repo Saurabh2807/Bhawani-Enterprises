@@ -1091,6 +1091,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       db.wallets,
       db.wallet_ledger,
       db.cash_ledger,
+      db.services,
       db.service_wallet_rules,
       db.sync_queue
     ], async () => {
