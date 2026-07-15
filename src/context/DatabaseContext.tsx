@@ -778,7 +778,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             amount: entryAmount,
             running_cash: prevCash + entryAmount,
             ledger_type: 'transaction',
-            notes: notes || `${service.name} transaction`,
+            notes: `${service.name} transaction`,
             created_at: nowStr
           };
           await db.cash_ledger.add(cashEntry);
@@ -808,7 +808,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               amount: entryAmount,
               running_balance: prevBal + entryAmount,
               ledger_type: 'transaction',
-              notes: notes || `${service.name} transaction`,
+              notes: `${service.name} transaction`,
               created_at: nowStr
             };
             await db.wallet_ledger.add(walletEntry);
@@ -1282,6 +1282,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       amount,
       direction: 'DEBIT',
       notes: txNotes,
+      commission: 0,
       transaction_number: txNumber,
       status: 'pending',
       synced: 0,
@@ -1785,7 +1786,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const wipeAllData = async () => {
     // 1. Wipe remote tables on Supabase if online
-    if (isSupabaseConfigured()) {
+    if (isSupabaseConfigured() && supabase) {
       try {
         await supabase.from('transactions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
         await supabase.from('wallet_transfers').delete().neq('id', '00000000-0000-0000-0000-000000000000');
@@ -1804,22 +1805,10 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     await db.cash_ledger.clear();
     await db.sync_queue.clear();
 
-    // Reset local state variables
-    setCashBalance(0);
-    setWalletBalances({});
-
     // Reset settings in Dexie and state
     await db.settings.delete('setup_completed');
     await db.settings.delete('shop_name');
     await db.settings.delete('shop_logo');
-
-    // Refresh local settings state
-    const allSettings = await db.settings.toArray();
-    const settingsObj: Record<string, unknown> = {};
-    allSettings.forEach((s) => {
-      settingsObj[s.key] = s.value;
-    });
-    setSettings(settingsObj);
   };
 
   return (

@@ -480,10 +480,11 @@ export default function WalletsPage() {
           {adjustTarget && (
             <form onSubmit={handleAdjustSubmit} className="space-y-4 my-3">
               {adjustError && (
-                <div className="flex items-center gap-1.5 p-2 bg-red-50 text-red-600 rounded-lg text-[11px] font-semibold border border-red-100">
+                <div className="flex items-center gap-1.5 p-2 bg-red-50 text-red-650 rounded-lg text-[11px] font-semibold border border-red-100">
                   <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
                   <span>{adjustError}</span>
                 </div>
+              )}
               {/* Add/Deduct Toggle */}
               <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl">
                 <button
