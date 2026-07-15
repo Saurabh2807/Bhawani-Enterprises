@@ -139,8 +139,9 @@ const WalletIcon = ({ name, icon, color }: { name: string; icon?: string | null;
 };
 
 export default function HomePage() {
-  const { isLoaded, settings, services, wallets, cashBalance, walletBalances, syncStatus } = useDatabase();
+  const { isLoaded, settings, services, wallets, cashBalance, walletBalances, syncStatus, pullLatest } = useDatabase();
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
+  const [manualSyncing, setManualSyncing] = useState<boolean>(false);
   const [hideBalances, setHideBalances] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('bhawani_hide_balances') === 'true';
@@ -191,6 +192,18 @@ export default function HomePage() {
     return <SetupWizard />;
   }
 
+  const handleManualSyncClick = async () => {
+    if (manualSyncing || syncStatus === 'pending') return;
+    setManualSyncing(true);
+    try {
+      await pullLatest();
+    } catch (err) {
+      console.error('Failed manual sync:', err);
+    } finally {
+      setManualSyncing(false);
+    }
+  };
+
   // Format Date and Time
   const dayStr = currentTime?.toLocaleDateString('en-IN', { weekday: 'long' }) || '';
   const dateStr = currentTime?.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) || '';
@@ -213,26 +226,34 @@ export default function HomePage() {
           </div>
           
           {/* Offline Sync State Display */}
-          <div className="flex items-center gap-1.5 px-3 py-1 bg-white/10 backdrop-blur-sm rounded-full text-xs font-bold">
-            {syncStatus === 'pending' && (
+          <button
+            onClick={handleManualSyncClick}
+            disabled={manualSyncing || syncStatus === 'pending'}
+            className="flex items-center gap-1.5 px-3 py-1 bg-white/10 backdrop-blur-sm rounded-full text-xs font-bold text-white hover:bg-white/20 active:scale-95 transition-all outline-none border border-transparent focus:outline-none"
+            title="Force Pull Sync from Server"
+          >
+            {manualSyncing ? (
+              <>
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-200" />
+                <span className="text-blue-100 font-bold">Syncing...</span>
+              </>
+            ) : syncStatus === 'pending' ? (
               <>
                 <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-300" />
                 <span className="text-amber-300 font-bold">Pending Sync</span>
               </>
-            )}
-            {syncStatus === 'synced' && (
+            ) : syncStatus === 'synced' ? (
               <>
                 <div className="w-2 h-2 rounded-full bg-emerald-400"></div>
                 <span className="text-emerald-100">Synced</span>
               </>
-            )}
-            {syncStatus === 'local_only' && (
+            ) : (
               <>
                 <div className="w-2 h-2 rounded-full bg-slate-300"></div>
                 <span className="text-slate-200">Local Mode</span>
               </>
             )}
-          </div>
+          </button>
         </div>
       </div>
 

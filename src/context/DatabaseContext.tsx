@@ -36,6 +36,7 @@ interface DatabaseContextType {
 
   // Setup
   finishSetup: (openingCash: number, walletBalances: { name: string; balance: number }[]) => Promise<void>;
+  pullLatest: () => Promise<void>;
 }
 
 const DatabaseContext = createContext<DatabaseContextType | undefined>(undefined);
@@ -597,6 +598,25 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
     handleAuthTransition();
   }, [isAuthenticated, isOnline, pullLatest]);
+
+  // Polling sync to pull updates from Supabase every 10 seconds
+  useEffect(() => {
+    if (!isOnline || !isSupabaseConfigured() || !isAuthenticated) return;
+
+    const interval = setInterval(async () => {
+      try {
+        // Only pull if there are no local pending modifications to prevent conflicts
+        const count = await db.sync_queue.count();
+        if (count === 0) {
+          await pullLatest();
+        }
+      } catch (err) {
+        console.error('Error in periodic sync pull:', err);
+      }
+    }, 10000); // 10 seconds
+
+    return () => clearInterval(interval);
+  }, [isOnline, isAuthenticated, pullLatest]);
 
   // Save Transaction Function
   const saveTransaction = async (
@@ -1404,7 +1424,8 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         deleteWallet,
         reorderWallets,
         updateServiceConfig,
-        finishSetup
+        finishSetup,
+        pullLatest
       }}
     >
       {children}
