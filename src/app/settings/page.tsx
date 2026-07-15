@@ -22,7 +22,8 @@ import {
   AlertCircle,
   HelpCircle,
   FolderSync,
-  PlusCircle
+  PlusCircle,
+  ShieldAlert
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import type { Wallet as DBWallet, Service as DBService } from '@/lib/db';
@@ -44,11 +45,12 @@ export default function SettingsPage() {
     reorderWallets,
     restoreTransaction,
     syncStatus,
-    isOnline
+    isOnline,
+    wipeAllData
   } = useDatabase();
 
   // Active Collapsible Accordion sections
-  const [activeSection, setActiveSection] = useState<'profile' | 'commission' | 'services' | 'wallets' | 'deleted' | null>(null);
+  const [activeSection, setActiveSection] = useState<'profile' | 'commission' | 'services' | 'wallets' | 'deleted' | 'danger' | null>(null);
 
   // Shop Profile States
   const [shopName, setShopName] = useState<string>((settings.shop_name as string) || '');
@@ -82,7 +84,7 @@ export default function SettingsPage() {
   const [newWalColor, setNewWalColor] = useState<string>('#475569');
   const [newWalError, setNewWalError] = useState('');
 
-  const toggleSection = (section: 'profile' | 'commission' | 'services' | 'wallets' | 'deleted') => {
+  const toggleSection = (section: 'profile' | 'commission' | 'services' | 'wallets' | 'deleted' | 'danger') => {
     setActiveSection(activeSection === section ? null : section);
   };
 
@@ -157,6 +159,37 @@ export default function SettingsPage() {
       setTransferSlabs(transferSlabs.filter((_, i) => i !== index));
     } else if (type === 'loan') {
       setLoanSlabs(loanSlabs.filter((_, i) => i !== index));
+    }
+  };
+
+  // Danger Zone States
+  const [dangerConfirmText, setDangerConfirmText] = useState('');
+  const [dangerError, setDangerError] = useState('');
+  const [dangerSuccess, setDangerSuccess] = useState(false);
+  const [dangerProcessing, setDangerProcessing] = useState(false);
+
+  const handleWipeDataSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setDangerError('');
+    setDangerSuccess(false);
+
+    if (dangerConfirmText.toLowerCase().trim() !== 'wipe') {
+      setDangerError('Please type "wipe" exactly to confirm.');
+      return;
+    }
+
+    setDangerProcessing(true);
+    try {
+      await wipeAllData();
+      setDangerSuccess(true);
+      setDangerConfirmText('');
+      setTimeout(() => {
+        router.push('/');
+      }, 1200);
+    } catch (err) {
+      setDangerError(err instanceof Error ? err.message : 'Wipe operation failed.');
+    } finally {
+      setDangerProcessing(false);
     }
   };
 
@@ -836,6 +869,76 @@ export default function SettingsPage() {
                   })}
                 </div>
               )}
+            </div>
+          )}
+        </div>
+
+        {/* 5. Danger Zone (Factory Reset) Accordion */}
+        <div className="border border-red-100 rounded-2xl overflow-hidden shadow-sm">
+          <button
+            onClick={() => toggleSection('danger')}
+            className={`w-full p-4 flex justify-between items-center font-bold text-sm bg-red-50/20 hover:bg-red-50/40 transition-all ${
+              activeSection === 'danger' ? 'border-b border-red-100' : ''
+            }`}
+          >
+            <span className="flex items-center gap-2 text-red-700">
+              <Trash2 className="w-4 h-4 text-red-650" />
+              Danger Zone (Factory Reset)
+            </span>
+            <span className="text-xs text-red-500">{activeSection === 'danger' ? 'Hide' : 'Show'}</span>
+          </button>
+
+          {activeSection === 'danger' && (
+            <div className="p-4 bg-white space-y-4 animate-slideDown">
+              <div className="p-3.5 bg-red-50 text-red-850 rounded-xl border border-red-100 space-y-1">
+                <h4 className="text-xs font-black uppercase tracking-wide flex items-center gap-1.5 text-red-700">
+                  <ShieldAlert className="w-4 h-4" />
+                  Warning: Irreversible Action
+                </h4>
+                <p className="text-[11px] font-medium leading-relaxed">
+                  Executing a factory reset will permanently erase all transaction history, ledger entries, and transfers. All wallet balances will be reduced to zero, and the app settings will be wiped. You will be redirected to setup opening balances from scratch.
+                </p>
+              </div>
+
+              <form onSubmit={handleWipeDataSubmit} className="space-y-3">
+                {dangerError && (
+                  <div className="flex items-center gap-1.5 p-2 bg-red-50 text-red-600 rounded-lg text-[11px] font-semibold border border-red-100">
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    <span>{dangerError}</span>
+                  </div>
+                )}
+                {dangerSuccess && (
+                  <div className="flex items-center gap-1.5 p-2.5 bg-emerald-50 text-emerald-600 rounded-xl text-xs font-semibold border border-emerald-100">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Database successfully wiped! Restarting app...</span>
+                  </div>
+                )}
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="danger-confirm" className="text-slate-700 font-bold text-xs">
+                    Type <span className="font-extrabold text-red-600">wipe</span> to confirm reset
+                  </Label>
+                  <Input
+                    id="danger-confirm"
+                    type="text"
+                    placeholder="Type wipe"
+                    className="h-10 border-slate-200 focus-visible:ring-red-500 font-semibold text-sm rounded-xl"
+                    value={dangerConfirmText}
+                    onChange={(e) => setDangerConfirmText(e.target.value)}
+                    disabled={dangerProcessing || dangerSuccess}
+                    required
+                  />
+                </div>
+
+                <Button
+                  type="submit"
+                  variant="destructive"
+                  disabled={dangerProcessing || dangerSuccess}
+                  className="w-full h-11 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl active:scale-[0.98] transition-all shadow-md shadow-red-50"
+                >
+                  {dangerProcessing ? 'Wiping Database...' : 'Erase All Data & Reset App'}
+                </Button>
+              </form>
             </div>
           )}
         </div>

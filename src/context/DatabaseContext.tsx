@@ -39,6 +39,7 @@ interface DatabaseContextType {
   // Setup
   finishSetup: (openingCash: number, walletBalances: { name: string; balance: number }[]) => Promise<void>;
   pullLatest: () => Promise<void>;
+  wipeAllData: () => Promise<void>;
 }
 
 const DatabaseContext = createContext<DatabaseContextType | undefined>(undefined);
@@ -1782,6 +1783,46 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     runSyncWorker();
   };
 
+  const wipeAllData = async () => {
+    // 1. Wipe remote tables on Supabase if online
+    if (isSupabaseConfigured()) {
+      try {
+        await supabase.from('transactions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('wallet_transfers').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('wallet_ledger').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('cash_ledger').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('wallets').update({ balance: 0 }).neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('settings').delete().in('key', ['setup_completed', 'shop_name', 'shop_logo']);
+      } catch (err) {
+        console.error('Failed to clear Supabase database:', err);
+      }
+    }
+
+    // 2. Clear local IndexedDB tables
+    await db.transactions.clear();
+    await db.wallet_transfers.clear();
+    await db.wallet_ledger.clear();
+    await db.cash_ledger.clear();
+    await db.sync_queue.clear();
+
+    // Reset local state variables
+    setCashBalance(0);
+    setWalletBalances({});
+
+    // Reset settings in Dexie and state
+    await db.settings.delete('setup_completed');
+    await db.settings.delete('shop_name');
+    await db.settings.delete('shop_logo');
+
+    // Refresh local settings state
+    const allSettings = await db.settings.toArray();
+    const settingsObj: Record<string, unknown> = {};
+    allSettings.forEach((s) => {
+      settingsObj[s.key] = s.value;
+    });
+    setSettings(settingsObj);
+  };
+
   return (
     <DatabaseContext.Provider
       value={{
@@ -1828,7 +1869,8 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         reorderWallets,
         updateServiceConfig,
         finishSetup,
-        pullLatest
+        pullLatest,
+        wipeAllData
       }}
     >
       {children}
