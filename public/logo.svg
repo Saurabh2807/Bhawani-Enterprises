@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1d4ed8" />
+      <stop offset="100%" stop-color="#1e40af" />
+    </linearGradient>
+  </defs>
+  <!-- Background -->
+  <rect width="512" height="512" rx="100" fill="url(#blueGrad)" />
+  <!-- Logo Glyph (Fintech / Building / B Concept) -->
+  <g transform="translate(106, 106)" fill="#ffffff">
+    <!-- Outer Arch -->
+    <path d="M150 0 C232.8 0 300 67.2 300 150 C300 232.8 232.8 300 150 300 C67.2 300 0 232.8 0 150 C0 67.2 67.2 0 150 0 Z" opacity="0.15" />
+    <!-- Dynamic Graph / Arrow Rising (Banking/Scale) -->
+    <path d="M60 210 L60 150 A30 30 0 0 1 120 150 L120 210 Z" fill="#ffffff" />
+    <path d="M120 210 L120 110 A30 30 0 0 1 180 110 L180 210 Z" fill="#ffffff" />
+    <path d="M180 210 L180 60 A30 30 0 0 1 240 60 L240 210 Z" fill="#ffffff" />
+    <!-- Shield / Safety Ring -->
+    <path d="M150 40 C210.7 40 260 89.3 260 150 C260 210.7 210.7 260 150 260 C89.3 260 40 210.7 40 150 C40 89.3 89.3 40 150 40 Z" fill="none" stroke="#ffffff" stroke-width="12" stroke-linecap="round" />
+    <!-- Letter B stylized -->
+    <path d="M130 90 L170 90 C186.5 90 200 103.5 200 120 C200 136.5 186.5 150 170 150 L130 150 Z" fill="#ffffff" />
+    <path d="M130 150 L175 150 C191.5 150 205 163.5 205 180 C205 196.5 191.5 210 175 210 L130 210 Z" fill="#ffffff" />
+    <path d="M100 80 L130 80 L130 220 L100 220 Z" fill="#ffffff" />
+  </g>
+</svg>
