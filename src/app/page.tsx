@@ -95,6 +95,13 @@ const WalletIcon = ({ name, icon, color }: { name: string; icon?: string | null;
       </div>
     );
   }
+  if (cleanIcon === 'sbi' || cleanName.includes('sbi')) {
+    return (
+      <div className="w-9 h-9 rounded-full bg-[#0054a6] flex items-center justify-center shadow-sm border border-white">
+        <span className="text-white font-black text-[11px] leading-none">SBI</span>
+      </div>
+    );
+  }
   if (cleanIcon === 'jio' || cleanName.includes('jio')) {
     return (
       <div className="w-9 h-9 rounded-full overflow-hidden shadow-sm border border-white bg-white">

@@ -18,12 +18,12 @@ const WalletIcon = ({ name, icon, color }: { name: string; icon?: string | null;
   const cleanIcon = icon?.toLowerCase() || '';
   const cleanName = name.toLowerCase();
   
-  const bgCol = color ? `${color}1A` : 'rgba(71, 85, 105, 0.1)'; // 10% opacity
+  const bgCol = 'rgba(255, 255, 255, 0.8)'; // White container background
   const textCol = color || '#475569';
   
   if (cleanIcon === 'cash' || cleanName.includes('cash')) {
     return (
-      <div className="w-9 h-9 rounded-xl flex items-center justify-center font-bold" style={{ backgroundColor: bgCol, color: textCol }}>
+      <div className="w-9 h-9 rounded-xl flex items-center justify-center shadow-sm" style={{ backgroundColor: bgCol, color: textCol }}>
         <svg className="w-5 h-5 stroke-[2.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <rect width="20" height="12" x="2" y="6" rx="2" />
           <circle cx="12" cy="12" r="2" />
@@ -34,49 +34,56 @@ const WalletIcon = ({ name, icon, color }: { name: string; icon?: string | null;
   }
   if (cleanIcon === 'fino' || cleanName.includes('fino')) {
     return (
-      <div className="w-9 h-9 rounded-xl flex items-center justify-center font-extrabold text-[11px]" style={{ backgroundColor: bgCol, color: textCol }}>
-        FN
+      <div className="w-9 h-9 rounded-xl overflow-hidden shadow-sm flex items-center justify-center bg-white p-1">
+        <img src="/fino-logo.svg" alt="Fino" className="w-full h-full object-contain" />
+      </div>
+    );
+  }
+  if (cleanIcon === 'sbi' || cleanName.includes('sbi')) {
+    return (
+      <div className="w-9 h-9 rounded-full bg-[#0054a6] flex items-center justify-center shadow-sm border border-white">
+        <span className="text-white font-black text-[11px] leading-none">SBI</span>
       </div>
     );
   }
   if (cleanIcon === 'jio' || cleanName.includes('jio')) {
     return (
-      <div className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-[10px] italic" style={{ backgroundColor: bgCol, color: textCol }}>
-        Jio
+      <div className="w-9 h-9 rounded-full overflow-hidden shadow-sm border border-white bg-white">
+        <img src="/jio-logo.svg" alt="Jio" className="w-full h-full object-contain" />
       </div>
     );
   }
   if (cleanIcon === 'airtel' || cleanName.includes('airtel') || cleanName.includes('lapu')) {
     return (
-      <div className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-xs" style={{ backgroundColor: bgCol, color: textCol }}>
-        a
+      <div className="w-9 h-9 rounded-full overflow-hidden shadow-sm border border-white bg-white">
+        <img src="/airtel-logo.svg" alt="Airtel" className="w-full h-full object-contain" />
       </div>
     );
   }
   if (cleanIcon === 'phonepe' || cleanName.includes('phonepe')) {
     return (
-      <div className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-[10px]" style={{ backgroundColor: bgCol, color: textCol }}>
-        PP
+      <div className="w-9 h-9 rounded-full bg-[#5f259f] flex items-center justify-center shadow-sm border border-white">
+        <span className="text-white font-black text-[10px] leading-none">PP</span>
       </div>
     );
   }
   if (cleanIcon === 'google-pay' || cleanIcon === 'gpay' || cleanName.includes('google') || cleanName.includes('gpay')) {
     return (
-      <div className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-[10px]" style={{ backgroundColor: bgCol, color: textCol }}>
-        G
+      <div className="w-9 h-9 rounded-full bg-[#1a73e8] flex items-center justify-center shadow-sm border border-white">
+        <span className="text-white font-black text-xs leading-none">G</span>
       </div>
     );
   }
   if (cleanIcon === 'spice-money' || cleanName.includes('spice')) {
     return (
-      <div className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-[10px]" style={{ backgroundColor: bgCol, color: textCol }}>
-        SP
+      <div className="w-9 h-9 rounded-full bg-[#ff6600] flex items-center justify-center shadow-sm border border-white">
+        <span className="text-white font-black text-[10px] leading-none">SP</span>
       </div>
     );
   }
   
   return (
-    <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: bgCol, color: textCol }}>
+    <div className="w-9 h-9 rounded-xl flex items-center justify-center shadow-sm" style={{ backgroundColor: bgCol, color: textCol }}>
       <CreditCard className="w-5 h-5" />
     </div>
   );

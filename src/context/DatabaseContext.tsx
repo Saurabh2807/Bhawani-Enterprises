@@ -541,15 +541,28 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         await db.settings.add({ key: 'shop_logo', value: '', created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
       }
 
-      // Self-heal: Ensure system wallets (PhonePe, Google Pay, Navi) exist in the database
-      const existingWallets = await db.wallets.toArray();
+      // Self-heal: Check and migrate "Fino Wallet" to "Fino(S)"
+      const allWallets = await db.wallets.toArray();
+      const finoWallet = allWallets.find(w => w.name.toLowerCase().trim() === 'fino wallet');
+      if (finoWallet) {
+        finoWallet.name = 'Fino(S)';
+        finoWallet.updated_at = new Date().toISOString();
+        await db.wallets.put(finoWallet);
+        await queueSync('wallets', 'UPDATE', finoWallet.id, finoWallet);
+      }
+
+      // Self-heal: Ensure system wallets (Fino(S), Fino(N), SBI, PhonePe, Google Pay, Navi) exist in the database
+      const updatedWallets = await db.wallets.toArray();
       const systemWallets = [
-        { name: 'PhonePe', provider: 'PhonePe' as const, icon: 'phonepe', color: '#5f259f' },
-        { name: 'Google Pay', provider: 'Google Pay' as const, icon: 'google-pay', color: '#1a73e8' },
-        { name: 'Navi', provider: 'Other' as const, icon: 'landmark', color: '#0d9488' }
+        { name: 'Fino(S)', provider: 'FINO' as const, icon: 'fino', color: '#e21226', sort_order: 1 },
+        { name: 'Fino(N)', provider: 'FINO' as const, icon: 'fino', color: '#e21226', sort_order: 2 },
+        { name: 'SBI', provider: 'Other' as const, icon: 'landmark', color: '#0054a6', sort_order: 3 },
+        { name: 'PhonePe', provider: 'PhonePe' as const, icon: 'phonepe', color: '#5f259f', sort_order: 10 },
+        { name: 'Google Pay', provider: 'Google Pay' as const, icon: 'google-pay', color: '#1a73e8', sort_order: 11 },
+        { name: 'Navi', provider: 'Other' as const, icon: 'landmark', color: '#0d9488', sort_order: 12 }
       ];
       for (const sysW of systemWallets) {
-        if (!existingWallets.some(w => w.name.toLowerCase().trim() === sysW.name.toLowerCase().trim())) {
+        if (!updatedWallets.some(w => w.name.toLowerCase().trim() === sysW.name.toLowerCase().trim())) {
           const newW: Wallet = {
             id: crypto.randomUUID(),
             name: sysW.name,
@@ -557,7 +570,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             icon: sysW.icon,
             color: sysW.color,
             is_active: 1,
-            sort_order: existingWallets.length + 10,
+            sort_order: sysW.sort_order,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
           };
@@ -707,12 +720,22 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           // Mapped wallet id from rule or dynamically selected wallet
           const mappedWalletId = rule.wallet_id || walletId;
           if (mappedWalletId) {
-            const latestWallet = await db.wallet_ledger.where('wallet_id').equals(mappedWalletId).sortBy('created_at');
+            // Find SBI wallet ID to redirect UPI transactions
+            const sbiWallet = await db.wallets.filter(w => w.name.toLowerCase().trim() === 'sbi').first();
+            const sbiWalletId = sbiWallet?.id;
+
+            let targetWalletIdForLedger = mappedWalletId;
+            const selectedW = await db.wallets.get(mappedWalletId);
+            if (selectedW && ['phonepe', 'google pay', 'gpay', 'navi'].includes(selectedW.name.toLowerCase().trim()) && sbiWalletId) {
+              targetWalletIdForLedger = sbiWalletId;
+            }
+
+            const latestWallet = await db.wallet_ledger.where('wallet_id').equals(targetWalletIdForLedger).sortBy('created_at');
             const prevBal = latestWallet.length > 0 ? latestWallet[latestWallet.length - 1].running_balance : 0;
 
             const walletEntry: WalletLedger = {
               id: crypto.randomUUID(),
-              wallet_id: mappedWalletId,
+              wallet_id: targetWalletIdForLedger,
               transaction_id: transactionId,
               previous_balance: prevBal,
               amount: entryAmount,
@@ -730,7 +753,16 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     // Recalculate running balances to be absolutely consistent
     if (walletId) {
-      await recalculateWalletBalances(walletId);
+      // Find SBI wallet ID to redirect UPI transactions
+      const sbiWallet = await db.wallets.filter(w => w.name.toLowerCase().trim() === 'sbi').first();
+      const sbiWalletId = sbiWallet?.id;
+
+      const selectedW = await db.wallets.get(walletId);
+      if (selectedW && ['phonepe', 'google pay', 'gpay', 'navi'].includes(selectedW.name.toLowerCase().trim()) && sbiWalletId) {
+        await recalculateWalletBalances(sbiWalletId);
+      } else {
+        await recalculateWalletBalances(walletId);
+      }
     }
     await recalculateCashBalances();
 
@@ -755,7 +787,15 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     // Recalculate balances sequentially (ledger entries from deleted transactions will count as 0 balance change)
     if (tx.wallet_id) {
-      await recalculateWalletBalances(tx.wallet_id);
+      const sbiWallet = await db.wallets.filter(w => w.name.toLowerCase().trim() === 'sbi').first();
+      const sbiWalletId = sbiWallet?.id;
+
+      const selectedW = await db.wallets.get(tx.wallet_id);
+      if (selectedW && ['phonepe', 'google pay', 'gpay', 'navi'].includes(selectedW.name.toLowerCase().trim()) && sbiWalletId) {
+        await recalculateWalletBalances(sbiWalletId);
+      } else {
+        await recalculateWalletBalances(tx.wallet_id);
+      }
     }
     await recalculateCashBalances();
 
@@ -778,7 +818,15 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     // Recalculate balances sequentially to restore original ledger effects
     if (tx.wallet_id) {
-      await recalculateWalletBalances(tx.wallet_id);
+      const sbiWallet = await db.wallets.filter(w => w.name.toLowerCase().trim() === 'sbi').first();
+      const sbiWalletId = sbiWallet?.id;
+
+      const selectedW = await db.wallets.get(tx.wallet_id);
+      if (selectedW && ['phonepe', 'google pay', 'gpay', 'navi'].includes(selectedW.name.toLowerCase().trim()) && sbiWalletId) {
+        await recalculateWalletBalances(sbiWalletId);
+      } else {
+        await recalculateWalletBalances(tx.wallet_id);
+      }
     }
     await recalculateCashBalances();
 
@@ -1198,6 +1246,9 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       const finalWalletsToCreate = [...initialWallets];
       const systemWalletsToSeed = [
+        { name: 'Fino(S)', balance: 0 },
+        { name: 'Fino(N)', balance: 0 },
+        { name: 'SBI', balance: 0 },
         { name: 'PhonePe', balance: 0 },
         { name: 'Google Pay', balance: 0 },
         { name: 'Navi', balance: 0 }
