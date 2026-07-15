@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 
 export default function TransactionPage({ params }: { params: Promise<{ serviceId: string }> }) {
   const router = useRouter();
-  const { services, wallets, saveTransaction, isLoaded } = useDatabase();
+  const { services, wallets, saveTransaction, isLoaded, getSuggestedCommission } = useDatabase();
 
   // Resolve params using React.use()
   const { serviceId } = use(params);
@@ -19,12 +19,25 @@ export default function TransactionPage({ params }: { params: Promise<{ serviceI
   // Form states
   const [amount, setAmount] = useState<string>('');
   const [selectedWalletId, setSelectedWalletId] = useState<string>('');
-  const [notes, setNotes] = useState<string>('');
+  const [commission, setCommission] = useState<string>('0');
   const [error, setError] = useState<string>('');
   const [success, setSuccess] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
 
   const service = services.find((s) => s.id === serviceId);
+
+  // Auto-fill suggested commission when amount changes
+  useEffect(() => {
+    if (service) {
+      const parsedAmount = parseFloat(amount);
+      if (!isNaN(parsedAmount) && parsedAmount > 0) {
+        const suggested = getSuggestedCommission(service.type, parsedAmount);
+        setCommission(suggested.toString());
+      } else {
+        setCommission('0');
+      }
+    }
+  }, [amount, service, getSuggestedCommission]);
 
   // Set smart default wallet based on service type
   useEffect(() => {
@@ -106,7 +119,8 @@ export default function TransactionPage({ params }: { params: Promise<{ serviceI
     try {
       // Balance Enquiry has 0 amount
       const txAmount = isEnquiry ? 0 : parsedAmount;
-      await saveTransaction(service.id, txAmount, selectedWalletId || null, notes || null);
+      const commissionVal = parseFloat(commission) || 0;
+      await saveTransaction(service.id, txAmount, selectedWalletId || null, commissionVal);
       
       setSuccess(true);
       // Auto-redirect to home screen after 1.2 seconds (very fast UX)
@@ -227,20 +241,25 @@ export default function TransactionPage({ params }: { params: Promise<{ serviceI
             </div>
           )}
 
-          {/* Notes (Optional) */}
-          <div className="space-y-2">
-            <Label htmlFor="notes" className="text-slate-700 font-extrabold text-sm">
-              Notes (Optional)
+          {/* Commission Field */}
+          <div className="space-y-3">
+            <Label htmlFor="commission" className="text-slate-700 font-extrabold text-sm">
+              Commission (₹)
             </Label>
-            <Input
-              id="notes"
-              type="text"
-              placeholder="Add note (customer, plan details, etc.)"
-              className="h-12 border-slate-200 focus-visible:ring-blue-600 text-base font-semibold rounded-[16px] bg-slate-50/20"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              disabled={saving || success}
-            />
+            <div className="relative">
+              <span className="absolute inset-y-0 left-0 flex items-center pl-4 text-xl font-black text-slate-400">₹</span>
+              <Input
+                id="commission"
+                type="number"
+                inputMode="decimal"
+                placeholder="0.00"
+                className="pl-9 h-14 border-slate-200 focus-visible:ring-blue-600 text-xl font-black rounded-[18px] bg-slate-50/20"
+                value={commission}
+                onChange={(e) => setCommission(e.target.value)}
+                disabled={saving || success}
+                required
+              />
+            </div>
           </div>
         </div>
 

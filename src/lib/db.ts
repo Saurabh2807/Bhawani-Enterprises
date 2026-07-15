@@ -56,6 +56,7 @@ export interface Transaction {
   amount: number;
   direction: 'CREDIT' | 'DEBIT';
   notes: string | null;
+  commission: number;
   transaction_number: string;
   status: 'pending' | 'synced';
   synced: number; // 1 for true, 0 for false
@@ -126,13 +127,13 @@ class BhawaniDB extends Dexie {
   constructor() {
     super('BhawaniDB');
     
-    // Define database stores (v3 schema)
-    this.version(3).stores({
+    // Define database stores (v4 schema)
+    this.version(4).stores({
       wallets: 'id, name, provider, is_active, sort_order',
       services: 'id, type, is_active, sort_order',
       service_wallet_rules: 'id, service_id, wallet_id',
       wallet_transfers: 'id, source_wallet_id, destination_wallet_id, created_at',
-      transactions: 'id, service_id, wallet_id, transfer_id, transaction_number, transaction_date, synced, is_deleted, created_at',
+      transactions: 'id, service_id, wallet_id, transfer_id, transaction_number, transaction_date, synced, is_deleted, created_at, commission',
       wallet_ledger: 'id, wallet_id, transaction_id, ledger_type, created_at',
       cash_ledger: 'id, transaction_id, ledger_type, created_at',
       settings: 'key',

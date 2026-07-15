@@ -107,7 +107,7 @@ export default function WalletsPage() {
   const [adjustTarget, setAdjustTarget] = useState<{ id: string | 'CASH'; name: string; balance: number } | null>(null);
   const [adjustMode, setAdjustMode] = useState<'add' | 'deduct'>('add');
   const [amountVal, setAmountVal] = useState<string>('');
-  const [adjustReason, setAdjustReason] = useState<string>('');
+  const [commissionVal, setCommissionVal] = useState<string>('0');
   const [adjustError, setAdjustError] = useState<string>('');
   const [adjustSuccess, setAdjustSuccess] = useState<boolean>(false);
   const [adjusting, setAdjusting] = useState<boolean>(false);
@@ -129,8 +129,8 @@ export default function WalletsPage() {
     const bal = getBalance(id);
     setAdjustTarget({ id, name, balance: bal });
     setAmountVal('');
+    setCommissionVal('0');
     setAdjustMode('add');
-    setAdjustReason('Added balance / top up');
     setAdjustError('');
     setAdjustSuccess(false);
   };
@@ -145,7 +145,19 @@ export default function WalletsPage() {
       return;
     }
 
-    const delta = adjustMode === 'add' ? parsedAmount : -parsedAmount;
+    const parsedCommission = parseFloat(commissionVal) || 0;
+    if (parsedCommission < 0) {
+      setAdjustError('Commission cannot be negative.');
+      return;
+    }
+
+    const isJioOrAirtel = adjustTarget.id !== 'CASH' && (() => {
+      const lowerName = adjustTarget.name.toLowerCase();
+      return lowerName.includes('jio') || lowerName.includes('airtel') || lowerName.includes('lapu');
+    })();
+
+    const addDelta = (isJioOrAirtel && adjustMode === 'add') ? (parsedAmount + parsedCommission) : parsedAmount;
+    const delta = adjustMode === 'add' ? addDelta : -parsedAmount;
     const targetBalance = adjustTarget.balance + delta;
     if (targetBalance < 0) {
       setAdjustError('Wallet balance cannot become negative.');
@@ -156,7 +168,7 @@ export default function WalletsPage() {
     setAdjustError('');
 
     try {
-      await adjustWalletBalance(adjustTarget.id, targetBalance, adjustReason);
+      await adjustWalletBalance(adjustTarget.id, adjustMode, parsedAmount, parsedCommission);
       setAdjustSuccess(true);
       setTimeout(() => {
         setAdjustTarget(null);
@@ -472,37 +484,29 @@ export default function WalletsPage() {
                   <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
                   <span>{adjustError}</span>
                 </div>
-              )}
-
               {/* Add/Deduct Toggle */}
               <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl">
                 <button
                   type="button"
-                  onClick={() => {
-                    setAdjustMode('add');
-                    setAdjustReason('Added balance / top up');
-                  }}
+                  onClick={() => setAdjustMode('add')}
                   className={`py-1.5 text-xs font-bold rounded-lg transition-all ${
                     adjustMode === 'add'
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'text-slate-600 hover:bg-slate-200/50'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-slate-650 hover:bg-slate-200/50'
                   }`}
                 >
-                  Add Amount (+)
+                  + Add
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setAdjustMode('deduct');
-                    setAdjustReason('Deducted balance / correction');
-                  }}
+                  onClick={() => setAdjustMode('deduct')}
                   className={`py-1.5 text-xs font-bold rounded-lg transition-all ${
                     adjustMode === 'deduct'
-                      ? 'bg-red-650 text-white shadow-sm'
-                      : 'text-slate-600 hover:bg-slate-200/50'
+                      ? 'bg-red-600 text-white shadow-sm'
+                      : 'text-slate-650 hover:bg-slate-200/50'
                   }`}
                 >
-                  Deduct Amount (-)
+                  - Deduct
                 </button>
               </div>
 
@@ -519,14 +523,31 @@ export default function WalletsPage() {
                   <>
                     <div className="flex justify-between items-center text-xs font-semibold text-slate-500">
                       <span>{adjustMode === 'add' ? 'Added Amount:' : 'Deducted Amount:'}</span>
-                      <span className={adjustMode === 'add' ? 'font-extrabold text-emerald-600' : 'font-extrabold text-red-650'}>
+                      <span className={adjustMode === 'add' ? 'font-extrabold text-emerald-600' : 'font-extrabold text-red-600'}>
                         {adjustMode === 'add' ? '+' : '-'} ₹{parseFloat(amountVal).toLocaleString('en-IN')}
                       </span>
                     </div>
+                    {adjustMode === 'add' && commissionVal && !isNaN(parseFloat(commissionVal)) && parseFloat(commissionVal) > 0 && (
+                      <div className="flex justify-between items-center text-xs font-semibold text-slate-500">
+                        <span>Commission:</span>
+                        <span className="font-extrabold text-emerald-600">
+                          + ₹{parseFloat(commissionVal).toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                    )}
                     <div className="border-t border-slate-200 pt-1.5 flex justify-between items-center text-xs font-bold text-slate-800">
                       <span>New Target Balance:</span>
                       <span className="font-black text-blue-600 text-sm">
-                        ₹{(adjustTarget.balance + (adjustMode === 'add' ? parseFloat(amountVal) : -parseFloat(amountVal))).toLocaleString('en-IN')}
+                        ₹{(
+                          adjustTarget.balance + 
+                          (adjustMode === 'add' 
+                            ? (parseFloat(amountVal) + (
+                                (adjustTarget.id !== 'CASH' && (adjustTarget.name.toLowerCase().includes('jio') || adjustTarget.name.toLowerCase().includes('airtel') || adjustTarget.name.toLowerCase().includes('lapu')))
+                                ? (parseFloat(commissionVal) || 0)
+                                : 0
+                              ))
+                            : -parseFloat(amountVal))
+                        ).toLocaleString('en-IN')}
                       </span>
                     </div>
                   </>
@@ -541,7 +562,7 @@ export default function WalletsPage() {
                     id="adj-amount"
                     type="number"
                     inputMode="decimal"
-                    placeholder="Enter amount to adjust"
+                    placeholder="0.00"
                     className="pl-7 h-10 border-slate-200 focus-visible:ring-blue-600 text-sm font-bold rounded-lg"
                     value={amountVal}
                     onChange={(e) => setAmountVal(e.target.value)}
@@ -552,42 +573,33 @@ export default function WalletsPage() {
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <Label htmlFor="adj-reason" className="text-slate-700 font-bold text-xs">Reason for adjustment</Label>
-                <Input
-                  id="adj-reason"
-                  type="text"
-                  placeholder="e.g. Added balance / top up"
-                  className="h-10 border-slate-200 focus-visible:ring-blue-600 text-sm font-semibold rounded-lg"
-                  value={adjustReason}
-                  onChange={(e) => setAdjustReason(e.target.value)}
-                  disabled={adjusting || adjustSuccess}
-                  required
-                />
-                <div className="flex gap-1.5 flex-wrap mt-1">
-                  {(adjustMode === 'add' 
-                    ? ['Added balance / top up', 'Reconciliation Credit', 'Cash Deposit', 'Bank Interest']
-                    : ['Deducted balance / correction', 'Reconciliation Debit', 'Service Charges', 'Manual Fine']
-                  ).map((quickReason) => (
-                    <button
-                      key={quickReason}
-                      type="button"
-                      onClick={() => setAdjustReason(quickReason)}
-                      className="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-650 rounded-md text-[9px] font-bold border border-slate-150 active:scale-95 transition-all"
-                    >
-                      {quickReason}
-                    </button>
-                  ))}
+              {adjustMode === 'add' && (
+                <div className="space-y-1">
+                  <Label htmlFor="adj-commission" className="text-slate-700 font-bold text-xs">Commission (₹)</Label>
+                  <div className="relative">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-sm font-bold text-slate-400">₹</span>
+                    <Input
+                      id="adj-commission"
+                      type="number"
+                      inputMode="decimal"
+                      placeholder="0.00"
+                      className="pl-7 h-10 border-slate-200 focus-visible:ring-blue-600 text-sm font-bold rounded-lg"
+                      value={commissionVal}
+                      onChange={(e) => setCommissionVal(e.target.value)}
+                      disabled={adjusting || adjustSuccess}
+                      required
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
               <DialogFooter className="flex gap-2 pt-2">
                 <Button
                   type="submit"
                   disabled={adjusting || adjustSuccess}
-                  className="flex-1 h-10 bg-blue-600 text-white font-bold text-xs rounded-lg"
+                  className="flex-1 h-10 bg-blue-600 text-white font-bold text-xs rounded-lg hover:bg-blue-700"
                 >
-                  {adjusting ? 'Saving...' : 'Save Adjustment'}
+                  {adjusting ? 'Saving...' : 'Save Load'}
                 </Button>
                 <Button
                   type="button"

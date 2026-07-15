@@ -146,7 +146,7 @@ const WalletIcon = ({ name, icon, color }: { name: string; icon?: string | null;
 };
 
 export default function HomePage() {
-  const { isLoaded, settings, services, wallets, cashBalance, walletBalances, syncStatus, pullLatest } = useDatabase();
+  const { isLoaded, settings, services, wallets, cashBalance, walletBalances, syncStatus, pullLatest, transactions } = useDatabase();
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
   const [manualSyncing, setManualSyncing] = useState<boolean>(false);
   const [hideBalances, setHideBalances] = useState<boolean>(() => {
@@ -155,6 +155,29 @@ export default function HomePage() {
     }
     return false;
   });
+
+  const todayProfit = React.useMemo(() => {
+    const date = new Date();
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    const todayStr = `${y}-${m}-${d}`;
+
+    return transactions
+      .filter(tx => tx.is_deleted === 0 && tx.transaction_date === todayStr)
+      .reduce((sum, tx) => sum + (tx.commission || 0), 0);
+  }, [transactions]);
+
+  const monthlyProfit = React.useMemo(() => {
+    const date = new Date();
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const monthPrefix = `${y}-${m}`;
+
+    return transactions
+      .filter(tx => tx.is_deleted === 0 && tx.transaction_date && tx.transaction_date.startsWith(monthPrefix))
+      .reduce((sum, tx) => sum + (tx.commission || 0), 0);
+  }, [transactions]);
 
   // Set time client side to avoid Next.js server/client hydration mismatch
   useEffect(() => {
@@ -261,6 +284,22 @@ export default function HomePage() {
               </>
             )}
           </button>
+        </div>
+
+        {/* Today's & Monthly Profit Banner Cards */}
+        <div className="mt-5 grid grid-cols-2 gap-4 pt-4 border-t border-blue-500/35">
+          <div className="bg-white/5 backdrop-blur-sm p-3 rounded-xl border border-white/10 flex flex-col">
+            <span className="text-[10px] font-extrabold text-blue-200 uppercase tracking-wider block">Today's Profit</span>
+            <span className="text-base font-black text-white block mt-0.5">
+              ₹{todayProfit.toLocaleString('en-IN')}
+            </span>
+          </div>
+          <div className="bg-white/5 backdrop-blur-sm p-3 rounded-xl border border-white/10 flex flex-col">
+            <span className="text-[10px] font-extrabold text-blue-200 uppercase tracking-wider block">Monthly Profit</span>
+            <span className="text-base font-black text-white block mt-0.5">
+              ₹{monthlyProfit.toLocaleString('en-IN')}
+            </span>
+          </div>
         </div>
       </div>
 

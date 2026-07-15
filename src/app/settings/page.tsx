@@ -48,7 +48,7 @@ export default function SettingsPage() {
   } = useDatabase();
 
   // Active Collapsible Accordion sections
-  const [activeSection, setActiveSection] = useState<'profile' | 'services' | 'wallets' | 'deleted' | null>(null);
+  const [activeSection, setActiveSection] = useState<'profile' | 'commission' | 'services' | 'wallets' | 'deleted' | null>(null);
 
   // Shop Profile States
   const [shopName, setShopName] = useState<string>((settings.shop_name as string) || '');
@@ -82,8 +82,82 @@ export default function SettingsPage() {
   const [newWalColor, setNewWalColor] = useState<string>('#475569');
   const [newWalError, setNewWalError] = useState('');
 
-  const toggleSection = (section: 'profile' | 'services' | 'wallets' | 'deleted') => {
+  const toggleSection = (section: 'profile' | 'commission' | 'services' | 'wallets' | 'deleted') => {
     setActiveSection(activeSection === section ? null : section);
+  };
+
+  // Commission Rules States
+  const [rechargeDefault, setRechargeDefault] = useState<string>('2');
+  const [electricityDefault, setElectricityDefault] = useState<string>('5');
+  const [aepsSlabs, setAepsSlabs] = useState<Array<{ min: number; max: number; commission: number }>>([]);
+  const [transferSlabs, setTransferSlabs] = useState<Array<{ min: number; max: number; commission: number }>>([]);
+  const [loanSlabs, setLoanSlabs] = useState<Array<{ min: number; max: number; commission: number }>>([]);
+  const [commSuccess, setCommSuccess] = useState(false);
+
+  React.useEffect(() => {
+    if (settings.commission_rules) {
+      const rules = settings.commission_rules as any;
+      setRechargeDefault((rules.recharge_default ?? 2).toString());
+      setElectricityDefault((rules.electricity_default ?? 5).toString());
+      setAepsSlabs(rules.aeps_slabs || []);
+      setTransferSlabs(rules.transfer_slabs || []);
+      setLoanSlabs(rules.loan_slabs || []);
+    }
+  }, [settings.commission_rules]);
+
+  const handleSaveCommissionRules = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCommSuccess(false);
+
+    const rules = {
+      recharge_default: parseFloat(rechargeDefault) || 0,
+      electricity_default: parseFloat(electricityDefault) || 0,
+      aeps_slabs: aepsSlabs.map(s => ({ min: Number(s.min), max: Number(s.max), commission: Number(s.commission) })),
+      transfer_slabs: transferSlabs.map(s => ({ min: Number(s.min), max: Number(s.max), commission: Number(s.commission) })),
+      loan_slabs: loanSlabs.map(s => ({ min: Number(s.min), max: Number(s.max), commission: Number(s.commission) }))
+    };
+
+    await updateSetting('commission_rules', rules);
+    setCommSuccess(true);
+    setTimeout(() => setCommSuccess(false), 2000);
+  };
+
+  const handleAddSlab = (type: 'aeps' | 'transfer' | 'loan') => {
+    const newSlab = { min: 0, max: 0, commission: 0 };
+    if (type === 'aeps') {
+      setAepsSlabs([...aepsSlabs, newSlab]);
+    } else if (type === 'transfer') {
+      setTransferSlabs([...transferSlabs, newSlab]);
+    } else if (type === 'loan') {
+      setLoanSlabs([...loanSlabs, newSlab]);
+    }
+  };
+
+  const handleUpdateSlab = (type: 'aeps' | 'transfer' | 'loan', index: number, field: 'min' | 'max' | 'commission', val: string) => {
+    const numVal = parseFloat(val) || 0;
+    if (type === 'aeps') {
+      const copy = [...aepsSlabs];
+      copy[index] = { ...copy[index], [field]: numVal };
+      setAepsSlabs(copy);
+    } else if (type === 'transfer') {
+      const copy = [...transferSlabs];
+      copy[index] = { ...copy[index], [field]: numVal };
+      setTransferSlabs(copy);
+    } else if (type === 'loan') {
+      const copy = [...loanSlabs];
+      copy[index] = { ...copy[index], [field]: numVal };
+      setLoanSlabs(copy);
+    }
+  };
+
+  const handleRemoveSlab = (type: 'aeps' | 'transfer' | 'loan', index: number) => {
+    if (type === 'aeps') {
+      setAepsSlabs(aepsSlabs.filter((_, i) => i !== index));
+    } else if (type === 'transfer') {
+      setTransferSlabs(transferSlabs.filter((_, i) => i !== index));
+    } else if (type === 'loan') {
+      setLoanSlabs(loanSlabs.filter((_, i) => i !== index));
+    }
   };
 
   // 1. Profile Handlers
@@ -302,6 +376,235 @@ export default function SettingsPage() {
               </div>
               <Button type="submit" className="w-full h-10 bg-blue-600 text-white font-bold text-xs rounded-xl">
                 Save Shop Config
+              </Button>
+            </form>
+          )}
+        </div>
+
+        {/* Commission Rules Accordion */}
+        <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-sm">
+          <button
+            onClick={() => toggleSection('commission')}
+            className={`w-full p-4 flex justify-between items-center font-bold text-sm bg-slate-50/70 hover:bg-slate-50 transition-all ${
+              activeSection === 'commission' ? 'border-b border-slate-100' : ''
+            }`}
+          >
+            <span className="flex items-center gap-2 text-slate-800">
+              <Sliders className="w-4 h-4 text-blue-600" />
+              Commission Rules Settings
+            </span>
+            <span className="text-xs text-slate-400">{activeSection === 'commission' ? 'Hide' : 'Show'}</span>
+          </button>
+
+          {activeSection === 'commission' && (
+            <form onSubmit={handleSaveCommissionRules} className="p-4 bg-white space-y-6 animate-slideDown">
+              {commSuccess && (
+                <div className="flex items-center gap-2 p-2.5 bg-emerald-50 text-emerald-600 rounded-xl text-xs font-semibold border border-emerald-100">
+                  <CheckCircle2 className="w-4 h-4 stroke-[2.5]" />
+                  <span>Commission rules saved.</span>
+                </div>
+              )}
+
+              {/* General defaults */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <Label htmlFor="rechargeDefault" className="text-slate-700 font-bold text-xs">Recharge Commission (₹)</Label>
+                  <Input
+                    id="rechargeDefault"
+                    type="number"
+                    inputMode="decimal"
+                    placeholder="2.00"
+                    className="h-10 border-slate-200 text-sm font-semibold rounded-xl"
+                    value={rechargeDefault}
+                    onChange={(e) => setRechargeDefault(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="electricityDefault" className="text-slate-700 font-bold text-xs">Electricity Comm. (₹)</Label>
+                  <Input
+                    id="electricityDefault"
+                    type="number"
+                    inputMode="decimal"
+                    placeholder="5.00"
+                    className="h-10 border-slate-200 text-sm font-semibold rounded-xl"
+                    value={electricityDefault}
+                    onChange={(e) => setElectricityDefault(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* AEPS Slabs */}
+              <div className="space-y-3 pt-2 border-t border-slate-100">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-extrabold text-slate-800 uppercase tracking-wide">AEPS Withdrawal Slabs</span>
+                  <button
+                    type="button"
+                    onClick={() => handleAddSlab('aeps')}
+                    className="flex items-center gap-1 text-[10px] font-bold text-blue-600 hover:text-blue-800"
+                  >
+                    <PlusCircle className="w-3.5 h-3.5" />
+                    Add Slab
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  {aepsSlabs.length === 0 ? (
+                    <p className="text-[11px] text-slate-400 font-medium italic">No slabs configured. Defaults to ₹0.</p>
+                  ) : (
+                    aepsSlabs.map((slab, idx) => (
+                      <div key={idx} className="flex gap-2 items-center">
+                        <Input
+                          type="number"
+                          placeholder="Min ₹"
+                          className="h-9 border-slate-200 text-xs font-semibold rounded-lg flex-1"
+                          value={slab.min === 0 ? '' : slab.min}
+                          onChange={(e) => handleUpdateSlab('aeps', idx, 'min', e.target.value)}
+                        />
+                        <span className="text-slate-400 text-xs">-</span>
+                        <Input
+                          type="number"
+                          placeholder="Max ₹"
+                          className="h-9 border-slate-200 text-xs font-semibold rounded-lg flex-1"
+                          value={slab.max === 0 ? '' : slab.max}
+                          onChange={(e) => handleUpdateSlab('aeps', idx, 'max', e.target.value)}
+                        />
+                        <span className="text-slate-400 text-xs">→</span>
+                        <Input
+                          type="number"
+                          placeholder="Comm. ₹"
+                          className="h-9 border-slate-200 text-xs font-bold text-blue-600 rounded-lg w-20"
+                          value={slab.commission === 0 ? '' : slab.commission}
+                          onChange={(e) => handleUpdateSlab('aeps', idx, 'commission', e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveSlab('aeps', idx)}
+                          className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg active:scale-95 transition-all"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Money Transfer Slabs */}
+              <div className="space-y-3 pt-4 border-t border-slate-100">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-extrabold text-slate-800 uppercase tracking-wide">Money Transfer Slabs</span>
+                  <button
+                    type="button"
+                    onClick={() => handleAddSlab('transfer')}
+                    className="flex items-center gap-1 text-[10px] font-bold text-blue-600 hover:text-blue-800"
+                  >
+                    <PlusCircle className="w-3.5 h-3.5" />
+                    Add Slab
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  {transferSlabs.length === 0 ? (
+                    <p className="text-[11px] text-slate-400 font-medium italic">No slabs configured. Defaults to ₹0.</p>
+                  ) : (
+                    transferSlabs.map((slab, idx) => (
+                      <div key={idx} className="flex gap-2 items-center">
+                        <Input
+                          type="number"
+                          placeholder="Min ₹"
+                          className="h-9 border-slate-200 text-xs font-semibold rounded-lg flex-1"
+                          value={slab.min === 0 ? '' : slab.min}
+                          onChange={(e) => handleUpdateSlab('transfer', idx, 'min', e.target.value)}
+                        />
+                        <span className="text-slate-400 text-xs">-</span>
+                        <Input
+                          type="number"
+                          placeholder="Max ₹"
+                          className="h-9 border-slate-200 text-xs font-semibold rounded-lg flex-1"
+                          value={slab.max === 0 ? '' : slab.max}
+                          onChange={(e) => handleUpdateSlab('transfer', idx, 'max', e.target.value)}
+                        />
+                        <span className="text-slate-400 text-xs">→</span>
+                        <Input
+                          type="number"
+                          placeholder="Comm. ₹"
+                          className="h-9 border-slate-200 text-xs font-bold text-blue-600 rounded-lg w-20"
+                          value={slab.commission === 0 ? '' : slab.commission}
+                          onChange={(e) => handleUpdateSlab('transfer', idx, 'commission', e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveSlab('transfer', idx)}
+                          className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg active:scale-95 transition-all"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Loan Repayment Slabs */}
+              <div className="space-y-3 pt-4 border-t border-slate-100">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-extrabold text-slate-800 uppercase tracking-wide">Loan Repayment Slabs</span>
+                  <button
+                    type="button"
+                    onClick={() => handleAddSlab('loan')}
+                    className="flex items-center gap-1 text-[10px] font-bold text-blue-600 hover:text-blue-800"
+                  >
+                    <PlusCircle className="w-3.5 h-3.5" />
+                    Add Slab
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  {loanSlabs.length === 0 ? (
+                    <p className="text-[11px] text-slate-400 font-medium italic">No slabs configured. Defaults to ₹0.</p>
+                  ) : (
+                    loanSlabs.map((slab, idx) => (
+                      <div key={idx} className="flex gap-2 items-center">
+                        <Input
+                          type="number"
+                          placeholder="Min ₹"
+                          className="h-9 border-slate-200 text-xs font-semibold rounded-lg flex-1"
+                          value={slab.min === 0 ? '' : slab.min}
+                          onChange={(e) => handleUpdateSlab('loan', idx, 'min', e.target.value)}
+                        />
+                        <span className="text-slate-400 text-xs">-</span>
+                        <Input
+                          type="number"
+                          placeholder="Max ₹"
+                          className="h-9 border-slate-200 text-xs font-semibold rounded-lg flex-1"
+                          value={slab.max === 0 ? '' : slab.max}
+                          onChange={(e) => handleUpdateSlab('loan', idx, 'max', e.target.value)}
+                        />
+                        <span className="text-slate-400 text-xs">→</span>
+                        <Input
+                          type="number"
+                          placeholder="Comm. ₹"
+                          className="h-9 border-slate-200 text-xs font-bold text-blue-600 rounded-lg w-20"
+                          value={slab.commission === 0 ? '' : slab.commission}
+                          onChange={(e) => handleUpdateSlab('loan', idx, 'commission', e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveSlab('loan', idx)}
+                          className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg active:scale-95 transition-all"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <Button type="submit" className="w-full h-10 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl mt-4 shadow-md shadow-blue-50">
+                Save Commission Rules
               </Button>
             </form>
           )}

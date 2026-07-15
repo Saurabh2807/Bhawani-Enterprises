@@ -64,6 +64,7 @@ CREATE TABLE transactions (
     amount NUMERIC(12, 2) NOT NULL CHECK (amount >= 0),
     direction TEXT NOT NULL CHECK (direction IN ('CREDIT', 'DEBIT')),
     notes VARCHAR(300),
+    commission NUMERIC(10, 2) NOT NULL DEFAULT 0,
     transaction_number TEXT NOT NULL UNIQUE,
     status TEXT NOT NULL DEFAULT 'synced' CHECK (status IN ('pending', 'synced')),
     synced BOOLEAN NOT NULL DEFAULT true,

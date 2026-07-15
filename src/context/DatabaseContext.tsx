@@ -18,12 +18,14 @@ interface DatabaseContextType {
   isLoaded: boolean;
   
   // Actions
-  saveTransaction: (serviceId: string, amount: number, walletId: string | null, notes: string | null) => Promise<Transaction>;
+  saveTransaction: (serviceId: string, amount: number, walletId: string | null, commission: number) => Promise<Transaction>;
   deleteTransaction: (transactionId: string) => Promise<void>;
   restoreTransaction: (transactionId: string) => Promise<void>;
-  adjustWalletBalance: (walletId: string | 'CASH', newBalance: number, reason: string) => Promise<void>;
+  adjustWalletBalance: (walletId: string | 'CASH', action: 'add' | 'deduct', amount: number, commission: number) => Promise<void>;
   transferWallets: (sourceWalletId: string | 'CASH', destWalletId: string | 'CASH', amount: number, notes: string) => Promise<void>;
   updateSetting: (key: string, value: unknown) => Promise<void>;
+  getSuggestedCommission: (serviceType: string, amount: number) => number;
+  editTransaction: (transactionId: string, amount: number, walletId: string | null, commission: number) => Promise<void>;
   
   // Wallet CRUD
   addWallet: (name: string, provider: Wallet['provider'], icon: string | null, color: string | null) => Promise<string>;
@@ -439,6 +441,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             amount: parseFloat(item.amount),
             direction: item.direction,
             notes: item.notes,
+            commission: parseFloat(item.commission || '0'),
             transaction_number: item.transaction_number,
             status: 'synced',
             synced: 1,
@@ -541,6 +544,36 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         await db.settings.add({ key: 'shop_logo', value: '', created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
       }
 
+      // Self-heal: Ensure default commission rules exist
+      const hasCommRules = await db.settings.get('commission_rules');
+      if (!hasCommRules) {
+        const defaultRules = {
+          recharge_default: 2,
+          electricity_default: 5,
+          aeps_slabs: [
+            { min: 0, max: 1000, commission: 10 },
+            { min: 1001, max: 2000, commission: 20 },
+            { min: 2001, max: 3000, commission: 30 }
+          ],
+          transfer_slabs: [
+            { min: 0, max: 1000, commission: 10 },
+            { min: 1001, max: 2000, commission: 20 }
+          ],
+          loan_slabs: [
+            { min: 0, max: 1000, commission: 10 },
+            { min: 1001, max: 2000, commission: 20 }
+          ]
+        };
+        const rulesSetting = {
+          key: 'commission_rules',
+          value: defaultRules,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        await db.settings.add(rulesSetting);
+        await queueSync('settings', 'INSERT', 'commission_rules', rulesSetting);
+      }
+
       // Self-heal: Check and migrate "Fino Wallet" to "Fino(S)"
       const allWallets = await db.wallets.toArray();
       const finoWallet = allWallets.find(w => w.name.toLowerCase().trim() === 'fino wallet');
@@ -631,12 +664,44 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return () => clearInterval(interval);
   }, [isOnline, isAuthenticated, pullLatest]);
 
+  // Suggested Commission Engine
+  const getSuggestedCommission = useCallback((serviceType: string, amount: number): number => {
+    const rules = (settings.commission_rules as any) || {
+      recharge_default: 2,
+      electricity_default: 5,
+      aeps_slabs: [],
+      transfer_slabs: [],
+      loan_slabs: []
+    };
+
+    const cleanType = serviceType.toLowerCase();
+
+    if (cleanType.includes('recharge')) {
+      return Number(rules.recharge_default) || 0;
+    }
+    if (cleanType === 'electricity_bill') {
+      return Number(rules.electricity_default) || 0;
+    }
+    
+    let slabs: Array<{ min: number; max: number; commission: number }> = [];
+    if (cleanType === 'aeps_withdrawal') {
+      slabs = rules.aeps_slabs || [];
+    } else if (cleanType === 'money_transfer') {
+      slabs = rules.transfer_slabs || [];
+    } else if (cleanType === 'loan_repayment') {
+      slabs = rules.loan_slabs || [];
+    }
+
+    const matchedSlab = slabs.find(s => amount >= s.min && amount <= s.max);
+    return matchedSlab ? Number(matchedSlab.commission) : 0;
+  }, [settings]);
+
   // Save Transaction Function
   const saveTransaction = async (
     serviceId: string,
     amount: number,
     walletId: string | null,
-    notes: string | null
+    commission: number
   ): Promise<Transaction> => {
     triggerVibration();
 
@@ -663,7 +728,8 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       transfer_id: null,
       amount,
       direction,
-      notes,
+      notes: null,
+      commission,
       transaction_number: txNumber,
       status: 'pending',
       synced: 0,
@@ -833,57 +899,341 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     runSyncWorker();
   };
 
-  // Adjust Balance (Create new ledger entry with mandatory reason)
-  const adjustWalletBalance = async (walletId: string | 'CASH', newBalance: number, reason: string) => {
-    if (!reason || !reason.trim()) {
-      throw new Error('Adjustment reason is required.');
-    }
+  // Edit Transaction (Recalculate balances and update ledger entries chronologically)
+  const editTransaction = async (
+    transactionId: string,
+    newAmount: number,
+    newWalletId: string | null,
+    newCommission: number
+  ) => {
     triggerVibration();
     const nowStr = new Date().toISOString();
+    const tx = await db.transactions.get(transactionId);
+    if (!tx) throw new Error('Transaction not found');
 
-    const currentBal = walletId === 'CASH' ? cashBalance : (walletBalances[walletId] || 0);
-    const diff = newBalance - currentBal;
+    const oldWalletId = tx.wallet_id;
 
-    if (diff === 0) return; // No adjustment needed
-
-    if (walletId === 'CASH') {
-      const latestCash = await db.cash_ledger.orderBy('created_at').last();
-      const prevCash = latestCash?.running_cash || 0;
-
-      const entry: CashLedger = {
-        id: crypto.randomUUID(),
-        transaction_id: null,
-        previous_cash: prevCash,
-        amount: diff,
-        running_cash: prevCash + diff,
-        ledger_type: 'adjustment',
-        notes: reason,
-        created_at: nowStr
+    await db.transaction('rw', [
+      db.transactions,
+      db.wallet_ledger,
+      db.cash_ledger,
+      db.sync_queue
+    ], async () => {
+      // Update transaction fields
+      const updatedTx = {
+        ...tx,
+        amount: newAmount,
+        wallet_id: newWalletId,
+        commission: newCommission,
+        updated_at: nowStr
       };
-      await db.transaction('rw', [db.cash_ledger, db.sync_queue], async () => {
+      await db.transactions.put(updatedTx);
+      await queueSync('transactions', 'UPDATE', transactionId, updatedTx);
+
+      // Clean up previous ledger entries for this transaction
+      await db.wallet_ledger.where('transaction_id').equals(transactionId).delete();
+      await db.cash_ledger.where('transaction_id').equals(transactionId).delete();
+
+      // Check if it is a service transaction or direct wallet adjustment
+      if (tx.service_id) {
+        const service = await db.services.get(tx.service_id);
+        if (service) {
+          const rawRules = await db.service_wallet_rules
+            .where('service_id')
+            .equals(service.id)
+            .toArray();
+          const rules = rawRules.sort((a, b) => (a.priority || 0) - (b.priority || 0));
+
+          for (const rule of rules) {
+            const factor = rule.action === 'DEBIT' ? -1 : 1;
+            const entryAmount = newAmount * factor;
+
+            if (rule.direction === 'CASH') {
+              const cashEntry: CashLedger = {
+                id: crypto.randomUUID(),
+                transaction_id: transactionId,
+                previous_cash: 0,
+                amount: entryAmount,
+                running_cash: 0,
+                ledger_type: 'transaction',
+                notes: tx.notes || `${service.name} transaction`,
+                created_at: tx.created_at
+              };
+              await db.cash_ledger.add(cashEntry);
+              await queueSync('cash_ledger', 'INSERT', cashEntry.id, cashEntry);
+            } else {
+              const mappedWalletId = rule.wallet_id || newWalletId;
+              if (mappedWalletId) {
+                // SBI redirection check
+                const sbiWallet = await db.wallets.filter(w => w.name.toLowerCase().trim() === 'sbi').first();
+                const sbiWalletId = sbiWallet?.id;
+
+                let targetWalletIdForLedger = mappedWalletId;
+                const selectedW = await db.wallets.get(mappedWalletId);
+                if (selectedW && ['phonepe', 'google pay', 'gpay', 'navi'].includes(selectedW.name.toLowerCase().trim()) && sbiWalletId) {
+                  targetWalletIdForLedger = sbiWalletId;
+                }
+
+                const walletEntry: WalletLedger = {
+                  id: crypto.randomUUID(),
+                  wallet_id: targetWalletIdForLedger,
+                  transaction_id: transactionId,
+                  previous_balance: 0,
+                  amount: entryAmount,
+                  running_balance: 0,
+                  ledger_type: 'transaction',
+                  notes: tx.notes || `${service.name} transaction`,
+                  created_at: tx.created_at
+                };
+                await db.wallet_ledger.add(walletEntry);
+                await queueSync('wallet_ledger', 'INSERT', walletEntry.id, walletEntry);
+              }
+            }
+          }
+        }
+      } else {
+        // Direct adjustment/load transaction
+        const directionFactor = tx.direction === 'CREDIT' ? 1 : -1;
+        const isCredit = tx.direction === 'CREDIT';
+
+        if (newWalletId === null) {
+          // Cash adjustment
+          const cashEntry: CashLedger = {
+            id: crypto.randomUUID(),
+            transaction_id: transactionId,
+            previous_cash: 0,
+            amount: newAmount * directionFactor,
+            running_cash: 0,
+            ledger_type: 'adjustment',
+            notes: tx.notes || (isCredit ? 'Cash Load' : 'Cash Deduct'),
+            created_at: tx.created_at
+          };
+          await db.cash_ledger.add(cashEntry);
+          await queueSync('cash_ledger', 'INSERT', cashEntry.id, cashEntry);
+        } else {
+          // Wallet adjustment
+          let isJioOrAirtel = false;
+          const w = await db.wallets.get(newWalletId);
+          if (w) {
+            const lowerName = w.name.toLowerCase();
+            isJioOrAirtel = lowerName.includes('jio') || lowerName.includes('airtel') || lowerName.includes('lapu');
+          }
+
+          if (isJioOrAirtel && isCredit) {
+            // Write 2 entries
+            const entry1: WalletLedger = {
+              id: crypto.randomUUID(),
+              wallet_id: newWalletId,
+              transaction_id: transactionId,
+              previous_balance: 0,
+              amount: newAmount,
+              running_balance: 0,
+              ledger_type: 'adjustment',
+              notes: 'Wallet Load',
+              created_at: tx.created_at
+            };
+            await db.wallet_ledger.add(entry1);
+            await queueSync('wallet_ledger', 'INSERT', entry1.id, entry1);
+
+            if (newCommission > 0) {
+              const entry2: WalletLedger = {
+                id: crypto.randomUUID(),
+                wallet_id: newWalletId,
+                transaction_id: transactionId,
+                previous_balance: 0,
+                amount: newCommission,
+                running_balance: 0,
+                ledger_type: 'adjustment',
+                notes: 'Operator Commission',
+                created_at: new Date(new Date(tx.created_at).getTime() + 1000).toISOString()
+              };
+              await db.wallet_ledger.add(entry2);
+              await queueSync('wallet_ledger', 'INSERT', entry2.id, entry2);
+            }
+          } else {
+            // Single entry
+            const walletEntry: WalletLedger = {
+              id: crypto.randomUUID(),
+              wallet_id: newWalletId,
+              transaction_id: transactionId,
+              previous_balance: 0,
+              amount: newAmount * directionFactor,
+              running_balance: 0,
+              ledger_type: 'adjustment',
+              notes: tx.notes || (isCredit ? 'Wallet Load' : 'Wallet Deduct'),
+              created_at: tx.created_at
+            };
+            await db.wallet_ledger.add(walletEntry);
+            await queueSync('wallet_ledger', 'INSERT', walletEntry.id, walletEntry);
+          }
+        }
+      }
+    });
+
+    // 3. Recalculate balances
+    const sbiWallet = await db.wallets.filter(w => w.name.toLowerCase().trim() === 'sbi').first();
+    const sbiWalletId = sbiWallet?.id;
+
+    const walletsToRecalculate = new Set<string>();
+    if (oldWalletId) walletsToRecalculate.add(oldWalletId);
+    if (newWalletId) walletsToRecalculate.add(newWalletId);
+    if (sbiWalletId) walletsToRecalculate.add(sbiWalletId);
+
+    // SBI check
+    for (const wId of Array.from(walletsToRecalculate)) {
+      const wObj = await db.wallets.get(wId);
+      if (wObj && ['phonepe', 'google pay', 'gpay', 'navi'].includes(wObj.name.toLowerCase().trim()) && sbiWalletId) {
+        walletsToRecalculate.add(sbiWalletId);
+      }
+    }
+
+    for (const wId of Array.from(walletsToRecalculate)) {
+      await recalculateWalletBalances(wId);
+    }
+    await recalculateCashBalances();
+
+    runSyncWorker();
+  };
+
+  // Adjust Balance (Create new ledger entry and transaction log)
+  const adjustWalletBalance = async (
+    walletId: string | 'CASH',
+    action: 'add' | 'deduct',
+    amount: number,
+    commission: number
+  ) => {
+    triggerVibration();
+    const nowStr = new Date().toISOString();
+    const dateStr = getLocalYYYYMMDD();
+    const transactionId = crypto.randomUUID();
+    const txNumber = await generateNextTransactionNumber();
+
+    // 1. Check if wallet is Jio or Airtel LAPU
+    let isJioOrAirtel = false;
+    if (walletId !== 'CASH') {
+      const w = await db.wallets.get(walletId);
+      if (w) {
+        const lowerName = w.name.toLowerCase();
+        isJioOrAirtel = lowerName.includes('jio') || lowerName.includes('airtel') || lowerName.includes('lapu');
+      }
+    }
+
+    const direction = action === 'add' ? 'CREDIT' : 'DEBIT';
+    const isCredit = action === 'add';
+
+    // Transaction tracks the raw input amount and commission permanently
+    const loadTx: Transaction = {
+      id: transactionId,
+      service_id: null,
+      wallet_id: walletId === 'CASH' ? null : walletId,
+      transfer_id: null,
+      amount,
+      direction,
+      notes: isCredit ? 'Wallet Load' : 'Wallet Deduct',
+      commission: isCredit ? commission : 0,
+      transaction_number: txNumber,
+      status: 'pending',
+      synced: 0,
+      created_local: 1,
+      synced_at: null,
+      is_deleted: 0,
+      deleted_at: null,
+      restored_at: null,
+      transaction_date: dateStr,
+      created_at: nowStr,
+      updated_at: nowStr
+    };
+
+    await db.transaction('rw', [
+      db.transactions,
+      db.wallet_ledger,
+      db.cash_ledger,
+      db.sync_queue
+    ], async () => {
+      // Add transaction row
+      await db.transactions.add(loadTx);
+      await queueSync('transactions', 'INSERT', transactionId, loadTx);
+
+      const factor = isCredit ? 1 : -1;
+
+      if (walletId === 'CASH') {
+        const latestCash = await db.cash_ledger.orderBy('created_at').last();
+        const prevCash = latestCash?.running_cash || 0;
+
+        const entry: CashLedger = {
+          id: crypto.randomUUID(),
+          transaction_id: transactionId,
+          previous_cash: prevCash,
+          amount: amount * factor,
+          running_cash: prevCash + (amount * factor),
+          ledger_type: 'adjustment',
+          notes: isCredit ? 'Cash Load' : 'Cash Deduct',
+          created_at: nowStr
+        };
         await db.cash_ledger.add(entry);
         await queueSync('cash_ledger', 'INSERT', entry.id, entry);
-      });
+      } else {
+        if (isJioOrAirtel && isCredit) {
+          // Jio/Airtel load gets TWO separate ledger entries:
+          // Entry 1: Wallet Load (+Amount)
+          const latestWallet1 = await db.wallet_ledger.where('wallet_id').equals(walletId).sortBy('created_at');
+          const prevBal1 = latestWallet1.length > 0 ? latestWallet1[latestWallet1.length - 1].running_balance : 0;
+
+          const entry1: WalletLedger = {
+            id: crypto.randomUUID(),
+            wallet_id: walletId,
+            transaction_id: transactionId,
+            previous_balance: prevBal1,
+            amount: amount,
+            running_balance: prevBal1 + amount,
+            ledger_type: 'adjustment',
+            notes: 'Wallet Load',
+            created_at: nowStr
+          };
+          await db.wallet_ledger.add(entry1);
+          await queueSync('wallet_ledger', 'INSERT', entry1.id, entry1);
+
+          // Entry 2: Operator Commission (+Commission)
+          if (commission > 0) {
+            const entry2: WalletLedger = {
+              id: crypto.randomUUID(),
+              wallet_id: walletId,
+              transaction_id: transactionId,
+              previous_balance: prevBal1 + amount,
+              amount: commission,
+              running_balance: prevBal1 + amount + commission,
+              ledger_type: 'adjustment',
+              notes: 'Operator Commission',
+              created_at: new Date(new Date(nowStr).getTime() + 1000).toISOString() // Shifted to maintain sorting order
+            };
+            await db.wallet_ledger.add(entry2);
+            await queueSync('wallet_ledger', 'INSERT', entry2.id, entry2);
+          }
+        } else {
+          // Regular wallet load/deduct gets a single entry
+          const latestWallet = await db.wallet_ledger.where('wallet_id').equals(walletId).sortBy('created_at');
+          const prevBal = latestWallet.length > 0 ? latestWallet[latestWallet.length - 1].running_balance : 0;
+
+          const entry: WalletLedger = {
+            id: crypto.randomUUID(),
+            wallet_id: walletId,
+            transaction_id: transactionId,
+            previous_balance: prevBal,
+            amount: amount * factor,
+            running_balance: prevBal + (amount * factor),
+            ledger_type: 'adjustment',
+            notes: isCredit ? 'Wallet Load' : 'Wallet Deduct',
+            created_at: nowStr
+          };
+          await db.wallet_ledger.add(entry);
+          await queueSync('wallet_ledger', 'INSERT', entry.id, entry);
+        }
+      }
+    });
+
+    if (walletId === 'CASH') {
       await recalculateCashBalances();
     } else {
-      const latestWallet = await db.wallet_ledger.where('wallet_id').equals(walletId).sortBy('created_at');
-      const prevBal = latestWallet.length > 0 ? latestWallet[latestWallet.length - 1].running_balance : 0;
-
-      const entry: WalletLedger = {
-        id: crypto.randomUUID(),
-        wallet_id: walletId,
-        transaction_id: null,
-        previous_balance: prevBal,
-        amount: diff,
-        running_balance: prevBal + diff,
-        ledger_type: 'adjustment',
-        notes: reason,
-        created_at: nowStr
-      };
-      await db.transaction('rw', [db.wallet_ledger, db.sync_queue], async () => {
-        await db.wallet_ledger.add(entry);
-        await queueSync('wallet_ledger', 'INSERT', entry.id, entry);
-      });
       await recalculateWalletBalances(walletId);
     }
 
@@ -1470,6 +1820,8 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         adjustWalletBalance,
         transferWallets,
         updateSetting,
+        getSuggestedCommission,
+        editTransaction,
         addWallet,
         editWallet,
         deleteWallet,

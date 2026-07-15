@@ -130,3 +130,6 @@ CREATE TRIGGER trigger_set_transaction_date BEFORE INSERT ON transactions FOR EA
 UPDATE services 
 SET quick_amounts = ARRAY[500, 1000, 1500, 2000, 2500, 3000, 5000, 7000, 10000]
 WHERE type = 'money_transfer';
+
+-- 12. Profit & Commission Upgrade: Add commission column to transactions
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS commission NUMERIC(10,2) NOT NULL DEFAULT 0;

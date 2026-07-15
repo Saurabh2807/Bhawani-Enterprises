@@ -4,8 +4,11 @@ import React, { useState, useMemo, useEffect, Suspense } from 'react';
 import { useDatabase } from '@/context/DatabaseContext';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { BottomNav } from '@/components/layout/BottomNav';
-import { Search, Calendar, Filter, FileDown, ArrowLeft, RefreshCw, X, Trash2 } from 'lucide-react';
+import { Search, Calendar, Filter, FileDown, ArrowLeft, RefreshCw, X, Trash2, Pencil, AlertCircle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -16,7 +19,7 @@ function LedgerContent() {
   const defaultServiceId = searchParams.get('serviceId') || '';
   const defaultWalletId = searchParams.get('walletId') || '';
 
-  const { isLoaded, transactions, services, wallets, settings, deleteTransaction } = useDatabase();
+  const { isLoaded, transactions, services, wallets, settings, deleteTransaction, editTransaction } = useDatabase();
 
   // Filters State
   const [searchTerm, setSearchTerm] = useState('');
@@ -25,6 +28,52 @@ function LedgerContent() {
   const [customEndDate, setCustomEndDate] = useState('');
   const [walletFilter, setWalletFilter] = useState<string>(defaultWalletId || 'ALL'); // 'ALL' | 'CASH' | walletId
   const [serviceFilter, setServiceFilter] = useState<string>(defaultServiceId || 'ALL'); // 'ALL' | serviceId
+
+  // Edit Transaction States
+  const [editingTx, setEditingTx] = useState<any>(null);
+  const [editWalletId, setEditWalletId] = useState<string>('');
+  const [editAmount, setEditAmount] = useState<string>('');
+  const [editCommission, setEditCommission] = useState<string>('');
+  const [editError, setEditError] = useState<string>('');
+  const [editing, setEditing] = useState<boolean>(false);
+
+  const handleOpenEdit = (tx: any) => {
+    setEditingTx(tx);
+    setEditWalletId(tx.wallet_id || 'CASH');
+    setEditAmount(tx.amount.toString());
+    setEditCommission((tx.commission || 0).toString());
+    setEditError('');
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTx) return;
+
+    const parsedAmount = parseFloat(editAmount);
+    if (isNaN(parsedAmount) || parsedAmount < 0) {
+      setEditError('Please enter a valid amount.');
+      return;
+    }
+
+    const parsedCommission = parseFloat(editCommission) || 0;
+    if (parsedCommission < 0) {
+      setEditError('Commission cannot be negative.');
+      return;
+    }
+
+    setEditing(true);
+    setEditError('');
+
+    try {
+      const targetWallet = editWalletId === 'CASH' ? null : editWalletId;
+      await editTransaction(editingTx.id, parsedAmount, targetWallet, parsedCommission);
+      setEditingTx(null);
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Failed to save transaction edits.');
+    } finally {
+      setEditing(false);
+    }
+  };
 
   // Sync state filter from search params if it changes
   useEffect(() => {
@@ -378,9 +427,14 @@ function LedgerContent() {
                       <span className="text-[10px] font-bold text-slate-400">{timeStr}</span>
                     </div>
 
-                    <h3 className="text-sm font-extrabold text-slate-800 mt-2 truncate flex items-center gap-1.5">
+                    <h3 className="text-sm font-extrabold text-slate-800 mt-2 truncate flex items-center gap-1.5 flex-wrap">
                       <span className="text-slate-400 text-xs font-mono font-medium">{tx.transaction_number}</span>
                       {tx.notes && <span className="text-slate-500 font-semibold text-xs truncate">({tx.notes})</span>}
+                      {tx.commission !== undefined && tx.commission > 0 && (
+                        <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded text-[10px] font-bold border border-emerald-100">
+                          Comm: ₹{tx.commission}
+                        </span>
+                      )}
                     </h3>
                     
                     <span className="text-[11px] font-semibold text-slate-400 mt-1 block">
@@ -397,6 +451,18 @@ function LedgerContent() {
                         {tx.status === 'synced' ? 'Synced' : 'Pending'}
                       </span>
                     </div>
+
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenEdit(tx);
+                      }}
+                      type="button"
+                      className="p-2 text-slate-450 hover:text-blue-600 hover:bg-blue-50 active:scale-90 transition-all rounded-lg"
+                      title="Edit Transaction"
+                    >
+                      <Pencil className="w-4 h-4 stroke-[2.5]" />
+                    </button>
 
                     <button
                       onClick={async (e) => {
@@ -422,6 +488,115 @@ function LedgerContent() {
           )}
         </div>
       </div>
+
+      {/* Edit Transaction Dialog Modal */}
+      <Dialog open={editingTx !== null} onOpenChange={(open) => !open && setEditingTx(null)}>
+        <DialogContent className="max-w-xs sm:max-w-sm rounded-[24px] p-5">
+          <DialogHeader>
+            <DialogTitle className="text-base font-extrabold text-slate-900">
+              Edit Transaction
+            </DialogTitle>
+            <p className="text-xs text-slate-500 font-medium">
+              Modify details for receipt {editingTx?.transaction_number}.
+            </p>
+          </DialogHeader>
+
+          {editingTx && (
+            <form onSubmit={handleEditSubmit} className="space-y-4 my-3">
+              {editError && (
+                <div className="flex items-center gap-1.5 p-2 bg-red-50 text-red-650 rounded-lg text-[11px] font-semibold border border-red-100">
+                  <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span>{editError}</span>
+                </div>
+              )}
+
+              {/* Wallet select */}
+              {editingTx.service_id !== null && (
+                <div className="space-y-1">
+                  <Label htmlFor="edit-wallet" className="text-slate-700 font-bold text-xs">Wallet / Channel</Label>
+                  <select
+                    id="edit-wallet"
+                    className="w-full h-10 px-3 border border-slate-200 focus:border-blue-600 focus:outline-none text-slate-800 font-semibold text-sm rounded-xl bg-slate-50/50 appearance-none"
+                    style={{
+                      backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e")`,
+                      backgroundRepeat: 'no-repeat',
+                      backgroundPosition: 'right 12px center',
+                      backgroundSize: '12px'
+                    }}
+                    value={editWalletId}
+                    onChange={(e) => setEditWalletId(e.target.value)}
+                    disabled={editing}
+                  >
+                    <option value="CASH">Cash register</option>
+                    {wallets.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Amount input */}
+              <div className="space-y-1">
+                <Label htmlFor="edit-amount" className="text-slate-700 font-bold text-xs">Amount (₹)</Label>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-sm font-bold text-slate-400">₹</span>
+                  <Input
+                    id="edit-amount"
+                    type="number"
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    className="pl-7 h-10 border-slate-200 focus-visible:ring-blue-600 text-sm font-bold rounded-lg"
+                    value={editAmount}
+                    onChange={(e) => setEditAmount(e.target.value)}
+                    disabled={editing}
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Commission input */}
+              <div className="space-y-1">
+                <Label htmlFor="edit-commission" className="text-slate-700 font-bold text-xs">Commission (₹)</Label>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-sm font-bold text-slate-400">₹</span>
+                  <Input
+                    id="edit-commission"
+                    type="number"
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    className="pl-7 h-10 border-slate-200 focus-visible:ring-blue-600 text-sm font-bold rounded-lg"
+                    value={editCommission}
+                    onChange={(e) => setEditCommission(e.target.value)}
+                    disabled={editing}
+                    required
+                  />
+                </div>
+              </div>
+
+              <DialogFooter className="flex gap-2 pt-2">
+                <Button
+                  type="submit"
+                  disabled={editing}
+                  className="flex-1 h-10 bg-blue-600 text-white font-bold text-xs rounded-lg hover:bg-blue-700"
+                >
+                  {editing ? 'Saving...' : 'Save Changes'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setEditingTx(null)}
+                  disabled={editing}
+                  className="flex-1 h-10 bg-slate-200 text-slate-800 font-bold text-xs rounded-lg hover:bg-slate-350"
+                >
+                  Cancel
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Structural bottom navigation */}
       <BottomNav />
