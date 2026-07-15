@@ -1791,7 +1791,6 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         await supabase.from('wallet_transfers').delete().neq('id', '00000000-0000-0000-0000-000000000000');
         await supabase.from('wallet_ledger').delete().neq('id', '00000000-0000-0000-0000-000000000000');
         await supabase.from('cash_ledger').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-        await supabase.from('wallets').update({ balance: 0 }).neq('id', '00000000-0000-0000-0000-000000000000');
         await supabase.from('settings').delete().in('key', ['setup_completed', 'shop_name', 'shop_logo']);
       } catch (err) {
         console.error('Failed to clear Supabase database:', err);
