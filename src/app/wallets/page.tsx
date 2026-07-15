@@ -98,7 +98,8 @@ export default function WalletsPage() {
 
   // Adjustment Modal States
   const [adjustTarget, setAdjustTarget] = useState<{ id: string | 'CASH'; name: string; balance: number } | null>(null);
-  const [newBalance, setNewBalance] = useState<string>('');
+  const [adjustMode, setAdjustMode] = useState<'add' | 'deduct'>('add');
+  const [amountVal, setAmountVal] = useState<string>('');
   const [adjustReason, setAdjustReason] = useState<string>('');
   const [adjustError, setAdjustError] = useState<string>('');
   const [adjustSuccess, setAdjustSuccess] = useState<boolean>(false);
@@ -120,8 +121,9 @@ export default function WalletsPage() {
   const handleOpenAdjust = (id: string | 'CASH', name: string) => {
     const bal = getBalance(id);
     setAdjustTarget({ id, name, balance: bal });
-    setNewBalance(bal.toString());
-    setAdjustReason('Physical cash counted');
+    setAmountVal('');
+    setAdjustMode('add');
+    setAdjustReason('Added balance / top up');
     setAdjustError('');
     setAdjustSuccess(false);
   };
@@ -130,9 +132,16 @@ export default function WalletsPage() {
     e.preventDefault();
     if (!adjustTarget) return;
 
-    const parsedNew = parseFloat(newBalance);
-    if (isNaN(parsedNew) || parsedNew < 0) {
-      setAdjustError('Please enter a valid, non-negative balance.');
+    const parsedAmount = parseFloat(amountVal);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      setAdjustError('Please enter a valid amount greater than 0.');
+      return;
+    }
+
+    const delta = adjustMode === 'add' ? parsedAmount : -parsedAmount;
+    const targetBalance = adjustTarget.balance + delta;
+    if (targetBalance < 0) {
+      setAdjustError('Wallet balance cannot become negative.');
       return;
     }
 
@@ -140,7 +149,7 @@ export default function WalletsPage() {
     setAdjustError('');
 
     try {
-      await adjustWalletBalance(adjustTarget.id, parsedNew, adjustReason);
+      await adjustWalletBalance(adjustTarget.id, targetBalance, adjustReason);
       setAdjustSuccess(true);
       setTimeout(() => {
         setAdjustTarget(null);
@@ -251,7 +260,7 @@ export default function WalletsPage() {
                   className="px-3.5 py-1.5 bg-white/20 hover:bg-white/30 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95"
                 >
                   <ClipboardEdit className="w-3.5 h-3.5" />
-                  Adjust
+                  Add / Adjust
                 </button>
                 <Link
                   href="/ledger?walletId=CASH"
@@ -300,7 +309,7 @@ export default function WalletsPage() {
                           className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition-all active:scale-95"
                         >
                           <ClipboardEdit className="w-3.5 h-3.5" />
-                          Adjust
+                          Add / Adjust
                         </button>
                         <Link
                           href={`/ledger?walletId=${wallet.id}`}
@@ -442,10 +451,10 @@ export default function WalletsPage() {
         <DialogContent className="max-w-xs sm:max-w-sm rounded-[24px] p-5">
           <DialogHeader>
             <DialogTitle className="text-base font-extrabold text-slate-900">
-              Balance Adjustment
+              Add / Deduct Wallet Amount
             </DialogTitle>
             <p className="text-xs text-slate-500 font-medium">
-              Update opening/closing balance by appending an adjustment ledger entry.
+              Update balance for {adjustTarget?.name} by adding or deducting funds.
             </p>
           </DialogHeader>
 
@@ -458,26 +467,80 @@ export default function WalletsPage() {
                 </div>
               )}
 
-              <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex justify-between items-center">
-                <span className="text-[11px] font-bold text-slate-400 uppercase">Current Balance</span>
-                <span className="text-sm font-extrabold text-slate-800">
-                  ₹{adjustTarget.balance.toLocaleString('en-IN')}
-                </span>
+              {/* Add/Deduct Toggle */}
+              <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAdjustMode('add');
+                    setAdjustReason('Added balance / top up');
+                  }}
+                  className={`py-1.5 text-xs font-bold rounded-lg transition-all ${
+                    adjustMode === 'add'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-slate-200/50'
+                  }`}
+                >
+                  Add Amount (+)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAdjustMode('deduct');
+                    setAdjustReason('Deducted balance / correction');
+                  }}
+                  className={`py-1.5 text-xs font-bold rounded-lg transition-all ${
+                    adjustMode === 'deduct'
+                      ? 'bg-red-650 text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-slate-200/50'
+                  }`}
+                >
+                  Deduct Amount (-)
+                </button>
+              </div>
+
+              {/* Live Preview & Current Balance */}
+              <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl space-y-1.5">
+                <div className="flex justify-between items-center text-xs font-bold text-slate-400 uppercase">
+                  <span>Current Balance:</span>
+                  <span className="font-extrabold text-slate-800">
+                    ₹{adjustTarget.balance.toLocaleString('en-IN')}
+                  </span>
+                </div>
+                
+                {amountVal && !isNaN(parseFloat(amountVal)) && (
+                  <>
+                    <div className="flex justify-between items-center text-xs font-semibold text-slate-500">
+                      <span>{adjustMode === 'add' ? 'Added Amount:' : 'Deducted Amount:'}</span>
+                      <span className={adjustMode === 'add' ? 'font-extrabold text-emerald-600' : 'font-extrabold text-red-650'}>
+                        {adjustMode === 'add' ? '+' : '-'} ₹{parseFloat(amountVal).toLocaleString('en-IN')}
+                      </span>
+                    </div>
+                    <div className="border-t border-slate-200 pt-1.5 flex justify-between items-center text-xs font-bold text-slate-800">
+                      <span>New Target Balance:</span>
+                      <span className="font-black text-blue-600 text-sm">
+                        ₹{(adjustTarget.balance + (adjustMode === 'add' ? parseFloat(amountVal) : -parseFloat(amountVal))).toLocaleString('en-IN')}
+                      </span>
+                    </div>
+                  </>
+                )}
               </div>
 
               <div className="space-y-1">
-                <Label htmlFor="new-bal" className="text-slate-700 font-bold text-xs">New Balance (₹)</Label>
+                <Label htmlFor="adj-amount" className="text-slate-700 font-bold text-xs">Amount (₹)</Label>
                 <div className="relative">
                   <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-sm font-bold text-slate-400">₹</span>
                   <Input
-                    id="new-bal"
+                    id="adj-amount"
                     type="number"
                     inputMode="decimal"
+                    placeholder="Enter amount to adjust"
                     className="pl-7 h-10 border-slate-200 focus-visible:ring-blue-600 text-sm font-bold rounded-lg"
-                    value={newBalance}
-                    onChange={(e) => setNewBalance(e.target.value)}
+                    value={amountVal}
+                    onChange={(e) => setAmountVal(e.target.value)}
                     disabled={adjusting || adjustSuccess}
                     required
+                    autoFocus
                   />
                 </div>
               </div>
@@ -487,7 +550,7 @@ export default function WalletsPage() {
                 <Input
                   id="adj-reason"
                   type="text"
-                  placeholder="e.g. Physical cash counted"
+                  placeholder="e.g. Added balance / top up"
                   className="h-10 border-slate-200 focus-visible:ring-blue-600 text-sm font-semibold rounded-lg"
                   value={adjustReason}
                   onChange={(e) => setAdjustReason(e.target.value)}
@@ -495,7 +558,10 @@ export default function WalletsPage() {
                   required
                 />
                 <div className="flex gap-1.5 flex-wrap mt-1">
-                  {['Opening Balance', 'Manual Correction', 'Wallet Reconciliation', 'Cash Count Difference'].map((quickReason) => (
+                  {(adjustMode === 'add' 
+                    ? ['Added balance / top up', 'Reconciliation Credit', 'Cash Deposit', 'Bank Interest']
+                    : ['Deducted balance / correction', 'Reconciliation Debit', 'Service Charges', 'Manual Fine']
+                  ).map((quickReason) => (
                     <button
                       key={quickReason}
                       type="button"
@@ -514,7 +580,7 @@ export default function WalletsPage() {
                   disabled={adjusting || adjustSuccess}
                   className="flex-1 h-10 bg-blue-600 text-white font-bold text-xs rounded-lg"
                 >
-                  {adjusting ? 'Adjusting...' : 'Save Adjustment'}
+                  {adjusting ? 'Saving...' : 'Save Adjustment'}
                 </Button>
                 <Button
                   type="button"

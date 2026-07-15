@@ -4,6 +4,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import { db, type Wallet, type Service, type ServiceWalletRule, type Transaction, type WalletLedger, type CashLedger, type Setting, type SyncItem, type WalletTransfer } from '@/lib/db';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { useAuth } from '@/context/AuthContext';
 
 interface DatabaseContextType {
   isOnline: boolean;
@@ -48,6 +49,7 @@ export const useDatabase = () => {
 };
 
 export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isAuthenticated } = useAuth();
   const [isOnline, setIsOnline] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       return navigator.onLine;
@@ -578,6 +580,23 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   useEffect(() => {
     initializeDatabase();
   }, []);
+
+  // Trigger a full pull from Supabase when the user logs in on a new device
+  useEffect(() => {
+    const handleAuthTransition = async () => {
+      if (isAuthenticated && isOnline && isSupabaseConfigured()) {
+        setIsLoaded(false);
+        try {
+          await pullLatest();
+        } catch (err) {
+          console.error('Failed to pull on login transition:', err);
+        } finally {
+          setIsLoaded(true);
+        }
+      }
+    };
+    handleAuthTransition();
+  }, [isAuthenticated, isOnline, pullLatest]);
 
   // Save Transaction Function
   const saveTransaction = async (

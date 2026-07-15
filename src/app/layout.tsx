@@ -40,14 +40,14 @@ export default function RootLayout({
       className={`${inter.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-slate-50 font-sans">
-        <DatabaseProvider>
-          <AuthProvider>
+        <AuthProvider>
+          <DatabaseProvider>
             <ServiceWorkerRegister />
             <main className="flex-1 flex flex-col pb-20 max-w-md mx-auto w-full bg-white shadow-xl relative overflow-x-hidden min-h-screen">
               {children}
             </main>
-          </AuthProvider>
-        </DatabaseProvider>
+          </DatabaseProvider>
+        </AuthProvider>
       </body>
     </html>
   );
