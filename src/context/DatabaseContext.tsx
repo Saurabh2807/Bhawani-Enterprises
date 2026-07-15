@@ -601,15 +601,22 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
 
     // Database transactional write
-    await db.transaction('rw', [db.transactions, db.wallet_ledger, db.cash_ledger, db.sync_queue], async () => {
+    await db.transaction('rw', [
+      db.transactions,
+      db.wallet_ledger,
+      db.cash_ledger,
+      db.service_wallet_rules,
+      db.sync_queue
+    ], async () => {
       await db.transactions.add(newTx);
       await queueSync('transactions', 'INSERT', transactionId, newTx);
 
       // Fetch rules for this service
-      const rules = await db.service_wallet_rules
+      const rawRules = await db.service_wallet_rules
         .where('service_id')
         .equals(serviceId)
-        .sortBy('priority');
+        .toArray();
+      const rules = rawRules.sort((a, b) => (a.priority || 0) - (b.priority || 0));
 
       for (const rule of rules) {
         // Calculate factor based on DEBIT or CREDIT
