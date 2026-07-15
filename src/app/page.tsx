@@ -13,23 +13,23 @@ const ServiceLogo = ({ type }: { type: string; color?: string }) => {
   switch (type) {
     case 'jio_recharge':
       return (
-        <img src="/jio-logo.svg" alt="Jio" className="w-12 h-12 rounded-full object-cover shadow-sm bg-white" />
+        <img src="/jio-logo.svg" alt="Jio" className="w-12 h-12 rounded-full object-contain shadow-sm bg-white" />
       );
     case 'airtel_recharge':
       return (
-        <img src="/airtel-logo.svg" alt="Airtel" className="w-12 h-12 rounded-full object-cover shadow-sm bg-white" />
+        <img src="/airtel-logo.svg" alt="Airtel" className="w-12 h-12 rounded-full object-contain p-1 shadow-sm bg-white" />
       );
     case 'vi_recharge':
       return (
-        <img src="/vi-logo.svg" alt="VI" className="w-12 h-12 rounded-full object-cover shadow-sm bg-white" />
+        <img src="/vi-logo.svg" alt="VI" className="w-12 h-12 rounded-full object-contain p-1 shadow-sm bg-[#eb0029]" />
       );
     case 'bsnl_recharge':
       return (
-        <img src="/bsnl-logo.svg" alt="BSNL" className="w-12 h-12 rounded-full object-cover shadow-sm bg-white" />
+        <img src="/bsnl-logo.svg" alt="BSNL" className="w-12 h-12 rounded-full object-contain p-1 shadow-sm bg-white" />
       );
     case 'aeps_withdrawal':
       return (
-        <img src="/aeps-logo.svg" alt="AEPS" className="w-12 h-12 rounded-full object-cover shadow-sm bg-white" />
+        <img src="/aeps-logo.svg" alt="AEPS" className="w-12 h-12 rounded-full object-contain p-1.5 shadow-sm bg-white" />
       );
     case 'money_transfer':
       return (
@@ -90,8 +90,8 @@ const WalletIcon = ({ name, icon, color }: { name: string; icon?: string | null;
   }
   if (cleanIcon === 'fino' || cleanName.includes('fino')) {
     return (
-      <div className="w-9 h-9 rounded-xl overflow-hidden shadow-sm flex items-center justify-center" style={{ backgroundColor: bgCol }}>
-        <img src="/fino-logo.svg" alt="Fino" className="w-full h-full object-cover" />
+      <div className="w-9 h-9 rounded-xl overflow-hidden shadow-sm flex items-center justify-center bg-white p-1">
+        <img src="/fino-logo.svg" alt="Fino" className="w-full h-full object-contain" />
       </div>
     );
   }
