@@ -126,8 +126,8 @@ class BhawaniDB extends Dexie {
   constructor() {
     super('BhawaniDB');
     
-    // Define database stores (v2 schema)
-    this.version(2).stores({
+    // Define database stores (v3 schema)
+    this.version(3).stores({
       wallets: 'id, name, provider, is_active, sort_order',
       services: 'id, type, is_active, sort_order',
       service_wallet_rules: 'id, service_id, wallet_id',
@@ -136,7 +136,7 @@ class BhawaniDB extends Dexie {
       wallet_ledger: 'id, wallet_id, transaction_id, ledger_type, created_at',
       cash_ledger: 'id, transaction_id, ledger_type, created_at',
       settings: 'key',
-      sync_queue: '++id, table, action, timestamp'
+      sync_queue: '++id, [table+key], table, action, timestamp'
     });
   }
 }
