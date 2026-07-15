@@ -76,8 +76,8 @@ export const SetupWizard = () => {
       });
 
       await finishSetup(parsedCash, formattedWallets);
-    } catch (err: any) {
-      setError(err.message || 'Failed to complete setup. Please check inputs.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to complete setup. Please check inputs.');
       setSubmitting(false);
     }
   };

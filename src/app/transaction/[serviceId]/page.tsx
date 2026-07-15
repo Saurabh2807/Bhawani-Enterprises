@@ -46,9 +46,13 @@ export default function TransactionPage({ params }: { params: Promise<{ serviceI
 
       // Fallback to first wallet if no match is found
       if (matchedWallet) {
-        setSelectedWalletId(matchedWallet.id);
+        const selectedId = matchedWallet.id;
+        const timer = setTimeout(() => setSelectedWalletId(selectedId), 0);
+        return () => clearTimeout(timer);
       } else if (wallets.length > 0) {
-        setSelectedWalletId(wallets[0].id);
+        const selectedId = wallets[0].id;
+        const timer = setTimeout(() => setSelectedWalletId(selectedId), 0);
+        return () => clearTimeout(timer);
       }
     }
   }, [service, wallets]);
@@ -109,8 +113,8 @@ export default function TransactionPage({ params }: { params: Promise<{ serviceI
       setTimeout(() => {
         router.replace('/');
       }, 1200);
-    } catch (err: any) {
-      setError(err.message || 'Failed to save transaction.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save transaction.');
       setSaving(false);
     }
   };

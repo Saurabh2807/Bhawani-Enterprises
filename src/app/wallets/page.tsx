@@ -11,6 +11,76 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { CreditCard } from 'lucide-react';
+
+// Wallet Logo / Icon mapper in lists
+const WalletIcon = ({ name, icon, color }: { name: string; icon?: string | null; color?: string | null }) => {
+  const cleanIcon = icon?.toLowerCase() || '';
+  const cleanName = name.toLowerCase();
+  
+  const bgCol = color ? `${color}1A` : 'rgba(71, 85, 105, 0.1)'; // 10% opacity
+  const textCol = color || '#475569';
+  
+  if (cleanIcon === 'cash' || cleanName.includes('cash')) {
+    return (
+      <div className="w-9 h-9 rounded-xl flex items-center justify-center font-bold" style={{ backgroundColor: bgCol, color: textCol }}>
+        <svg className="w-5 h-5 stroke-[2.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <rect width="20" height="12" x="2" y="6" rx="2" />
+          <circle cx="12" cy="12" r="2" />
+          <path d="M6 12h.01M18 12h.01" />
+        </svg>
+      </div>
+    );
+  }
+  if (cleanIcon === 'fino' || cleanName.includes('fino')) {
+    return (
+      <div className="w-9 h-9 rounded-xl flex items-center justify-center font-extrabold text-[11px]" style={{ backgroundColor: bgCol, color: textCol }}>
+        FN
+      </div>
+    );
+  }
+  if (cleanIcon === 'jio' || cleanName.includes('jio')) {
+    return (
+      <div className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-[10px] italic" style={{ backgroundColor: bgCol, color: textCol }}>
+        Jio
+      </div>
+    );
+  }
+  if (cleanIcon === 'airtel' || cleanName.includes('airtel') || cleanName.includes('lapu')) {
+    return (
+      <div className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-xs" style={{ backgroundColor: bgCol, color: textCol }}>
+        a
+      </div>
+    );
+  }
+  if (cleanIcon === 'phonepe' || cleanName.includes('phonepe')) {
+    return (
+      <div className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-[10px]" style={{ backgroundColor: bgCol, color: textCol }}>
+        PP
+      </div>
+    );
+  }
+  if (cleanIcon === 'google-pay' || cleanIcon === 'gpay' || cleanName.includes('google') || cleanName.includes('gpay')) {
+    return (
+      <div className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-[10px]" style={{ backgroundColor: bgCol, color: textCol }}>
+        G
+      </div>
+    );
+  }
+  if (cleanIcon === 'spice-money' || cleanName.includes('spice')) {
+    return (
+      <div className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-[10px]" style={{ backgroundColor: bgCol, color: textCol }}>
+        SP
+      </div>
+    );
+  }
+  
+  return (
+    <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: bgCol, color: textCol }}>
+      <CreditCard className="w-5 h-5" />
+    </div>
+  );
+};
 
 export default function WalletsPage() {
   const router = useRouter();
@@ -75,8 +145,8 @@ export default function WalletsPage() {
       setTimeout(() => {
         setAdjustTarget(null);
       }, 1000);
-    } catch (err: any) {
-      setAdjustError(err.message || 'Failed to adjust balance.');
+    } catch (err) {
+      setAdjustError(err instanceof Error ? err.message : 'Failed to adjust balance.');
     } finally {
       setAdjusting(false);
     }
@@ -121,8 +191,8 @@ export default function WalletsPage() {
         setTransferSuccess(false);
         setActiveTab('list');
       }, 1200);
-    } catch (err: any) {
-      setTransferError(err.message || 'Transfer failed.');
+    } catch (err) {
+      setTransferError(err instanceof Error ? err.message : 'Transfer failed.');
     } finally {
       setTransferring(false);
     }
@@ -153,7 +223,7 @@ export default function WalletsPage() {
 
       {/* Main Tab Wrapper */}
       <div className="flex-1 p-5 flex flex-col gap-4 overflow-y-auto pb-24">
-        <Tabs value={activeTab} onValueChange={(val: any) => setActiveTab(val)} className="w-full">
+        <Tabs value={activeTab} onValueChange={(val: string) => setActiveTab(val as 'list' | 'transfer')} className="w-full">
           <TabsList className="grid grid-cols-2 h-11 bg-slate-100/80 p-1 rounded-xl mb-4">
             <TabsTrigger value="list" className="rounded-lg font-bold text-xs">
               Accounts
@@ -209,12 +279,15 @@ export default function WalletsPage() {
                       key={wallet.id}
                       className="bg-white border border-slate-100 rounded-[20px] p-4 flex justify-between items-center shadow-sm hover:bg-slate-50/20 transition-all"
                     >
-                      <div className="flex-1 min-w-0">
-                        <span className="text-xs font-bold text-slate-400 block uppercase tracking-wider">Wallet Account</span>
-                        <h4 className="text-base font-extrabold text-slate-800 mt-1 truncate">{wallet.name}</h4>
-                        <span className="text-lg font-black text-slate-800 block mt-2">
-                          ₹{bal.toLocaleString('en-IN')}
-                        </span>
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <WalletIcon name={wallet.name} icon={wallet.icon} color={wallet.color} />
+                        <div className="min-w-0 flex-1">
+                          <span className="text-xs font-bold text-slate-400 block uppercase tracking-wider">Wallet Account</span>
+                          <h4 className="text-base font-extrabold text-slate-800 mt-1 truncate">{wallet.name}</h4>
+                          <span className="text-lg font-black text-slate-800 block mt-2">
+                            ₹{bal.toLocaleString('en-IN')}
+                          </span>
+                        </div>
                       </div>
                       
                       <div className="flex flex-col gap-1.5 ml-4">
@@ -323,16 +396,28 @@ export default function WalletsPage() {
 
               {/* Notes */}
               <div className="space-y-1.5">
-                <Label htmlFor="notes" className="text-slate-700 font-extrabold text-xs">Notes</Label>
+                <Label htmlFor="notes" className="text-slate-700 font-extrabold text-xs">Notes / Reason (Optional)</Label>
                 <Input
                   id="notes"
                   type="text"
-                  placeholder="e.g., Deposited cash into bank"
+                  placeholder="e.g., Shifted funds, Added Balance"
                   className="h-11 border-slate-200 focus-visible:ring-blue-600 text-sm font-semibold rounded-xl bg-white"
                   value={transferNotes}
                   onChange={(e) => setTransferNotes(e.target.value)}
                   disabled={transferring || transferSuccess}
                 />
+                <div className="flex gap-1.5 flex-wrap mt-1">
+                  {['Added Balance', 'Shifted Funds', 'Wallet Correction'].map((quickNote) => (
+                    <button
+                      key={quickNote}
+                      type="button"
+                      onClick={() => setTransferNotes(quickNote)}
+                      className="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-650 rounded-md text-[9px] font-bold border border-slate-150 active:scale-95 transition-all"
+                    >
+                      {quickNote}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* Submit Transfer */}
@@ -398,12 +483,25 @@ export default function WalletsPage() {
                 <Input
                   id="adj-reason"
                   type="text"
+                  placeholder="e.g. Physical cash counted"
                   className="h-10 border-slate-200 focus-visible:ring-blue-600 text-sm font-semibold rounded-lg"
                   value={adjustReason}
                   onChange={(e) => setAdjustReason(e.target.value)}
                   disabled={adjusting || adjustSuccess}
                   required
                 />
+                <div className="flex gap-1.5 flex-wrap mt-1">
+                  {['Opening Balance', 'Manual Correction', 'Wallet Reconciliation', 'Cash Count Difference'].map((quickReason) => (
+                    <button
+                      key={quickReason}
+                      type="button"
+                      onClick={() => setAdjustReason(quickReason)}
+                      className="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-650 rounded-md text-[9px] font-bold border border-slate-150 active:scale-95 transition-all"
+                    >
+                      {quickReason}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <DialogFooter className="flex gap-2 pt-2">

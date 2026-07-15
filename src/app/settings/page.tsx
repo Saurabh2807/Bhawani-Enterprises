@@ -25,6 +25,7 @@ import {
   PlusCircle
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import type { Wallet as DBWallet, Service as DBService } from '@/lib/db';
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -50,12 +51,12 @@ export default function SettingsPage() {
   const [activeSection, setActiveSection] = useState<'profile' | 'services' | 'wallets' | 'deleted' | null>(null);
 
   // Shop Profile States
-  const [shopName, setShopName] = useState(settings.shop_name || '');
-  const [shopLogo, setShopLogo] = useState(settings.shop_logo || '');
+  const [shopName, setShopName] = useState<string>((settings.shop_name as string) || '');
+  const [shopLogo, setShopLogo] = useState<string>((settings.shop_logo as string) || '');
   const [profileSuccess, setProfileSuccess] = useState(false);
 
   // Service Editing States
-  const [editingService, setEditingService] = useState<any | null>(null);
+  const [editingService, setEditingService] = useState<DBService | null>(null);
   const [svcName, setSvcName] = useState('');
   const [svcColor, setSvcColor] = useState('');
   const [svcActive, setSvcActive] = useState(true);
@@ -64,15 +65,21 @@ export default function SettingsPage() {
   const [svcError, setSvcError] = useState('');
   const [svcSuccess, setSvcSuccess] = useState(false);
 
-  // Wallet Editing States
-  const [editingWallet, setEditingWallet] = useState<any | null>(null);
+  // Wallet Editing States (Extended)
+  const [editingWallet, setEditingWallet] = useState<DBWallet | null>(null);
   const [walName, setWalName] = useState('');
+  const [walProvider, setWalProvider] = useState<'FINO' | 'PhonePe' | 'Google Pay' | 'Spice Money' | 'Other'>('Other');
+  const [walIcon, setWalIcon] = useState<string>('wallet');
+  const [walColor, setWalColor] = useState<string>('#475569');
   const [walActive, setWalActive] = useState(true);
   const [walSuccess, setWalSuccess] = useState(false);
 
-  // New Wallet States
+  // New Wallet States (Extended)
   const [showAddWallet, setShowAddWallet] = useState(false);
   const [newWalName, setNewWalName] = useState('');
+  const [newWalProvider, setNewWalProvider] = useState<'FINO' | 'PhonePe' | 'Google Pay' | 'Spice Money' | 'Other'>('Other');
+  const [newWalIcon, setNewWalIcon] = useState<string>('wallet');
+  const [newWalColor, setNewWalColor] = useState<string>('#475569');
   const [newWalError, setNewWalError] = useState('');
 
   const toggleSection = (section: 'profile' | 'services' | 'wallets' | 'deleted') => {
@@ -90,7 +97,7 @@ export default function SettingsPage() {
   };
 
   // 2. Service Handlers
-  const handleOpenEditService = (svc: any) => {
+  const handleOpenEditService = (svc: DBService) => {
     setEditingService(svc);
     setSvcName(svc.name);
     setSvcColor(svc.color || '#1d4ed8');
@@ -124,15 +131,18 @@ export default function SettingsPage() {
       );
       setSvcSuccess(true);
       setTimeout(() => setEditingService(null), 1000);
-    } catch (err: any) {
-      setSvcError(err.message || 'Failed to update service.');
+    } catch (err) {
+      setSvcError(err instanceof Error ? err.message : 'Failed to update service.');
     }
   };
 
   // 3. Wallet Handlers
-  const handleOpenEditWallet = (wal: any) => {
+  const handleOpenEditWallet = (wal: DBWallet) => {
     setEditingWallet(wal);
     setWalName(wal.name);
+    setWalProvider(wal.provider || 'Other');
+    setWalIcon(wal.icon || 'wallet');
+    setWalColor(wal.color || '#475569');
     setWalActive(wal.is_active === 1);
     setWalSuccess(false);
   };
@@ -142,7 +152,15 @@ export default function SettingsPage() {
     if (!editingWallet) return;
 
     try {
-      await editWallet(editingWallet.id, walName.trim(), editingWallet.sort_order, walActive);
+      await editWallet(
+        editingWallet.id,
+        walName.trim(),
+        walProvider,
+        walIcon || null,
+        walColor || null,
+        editingWallet.sort_order,
+        walActive
+      );
       setWalSuccess(true);
       setTimeout(() => setEditingWallet(null), 1000);
     } catch (err) {
@@ -160,11 +178,19 @@ export default function SettingsPage() {
     }
 
     try {
-      await addWallet(newWalName.trim());
+      await addWallet(
+        newWalName.trim(),
+        newWalProvider,
+        newWalIcon || null,
+        newWalColor || null
+      );
       setNewWalName('');
+      setNewWalProvider('Other');
+      setNewWalIcon('wallet');
+      setNewWalColor('#475569');
       setShowAddWallet(false);
-    } catch (err: any) {
-      setNewWalError(err.message || 'Failed to add wallet.');
+    } catch (err) {
+      setNewWalError(err instanceof Error ? err.message : 'Failed to add wallet.');
     }
   };
 
@@ -175,7 +201,7 @@ export default function SettingsPage() {
   };
 
   // 4. Recovery Handlers
-  const softDeletedTransactions = transactions.filter((tx) => tx.deleted_at !== null);
+  const softDeletedTransactions = transactions.filter((tx) => tx.is_deleted === 1);
 
   const handleRestore = async (id: string) => {
     await restoreTransaction(id);
@@ -378,6 +404,53 @@ export default function SettingsPage() {
                       value={newWalName}
                       onChange={(e) => setNewWalName(e.target.value)}
                     />
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label htmlFor="new-w-provider" className="text-slate-700 font-bold text-[10px] uppercase">Wallet Provider</Label>
+                    <select
+                      id="new-w-provider"
+                      className="w-full h-9 px-2 border border-slate-200 text-slate-800 font-semibold text-xs rounded-lg bg-white"
+                      value={newWalProvider}
+                      onChange={(e) => setNewWalProvider(e.target.value as DBWallet['provider'])}
+                    >
+                      {['FINO', 'PhonePe', 'Google Pay', 'Spice Money', 'Other'].map(p => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label htmlFor="new-w-icon" className="text-slate-700 font-bold text-[10px] uppercase">Icon Style</Label>
+                    <select
+                      id="new-w-icon"
+                      className="w-full h-9 px-2 border border-slate-200 text-slate-800 font-semibold text-xs rounded-lg bg-white"
+                      value={newWalIcon}
+                      onChange={(e) => setNewWalIcon(e.target.value)}
+                    >
+                      {['wallet', 'fino', 'jio', 'airtel', 'phonepe', 'google-pay', 'spice-money'].map(i => (
+                        <option key={i} value={i}>{i}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label htmlFor="new-w-color" className="text-slate-700 font-bold text-[10px] uppercase">Brand Color</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="new-w-color"
+                        className="h-9 bg-white text-xs font-mono rounded-lg flex-1"
+                        value={newWalColor}
+                        onChange={(e) => setNewWalColor(e.target.value)}
+                        required
+                      />
+                      <input
+                        type="color"
+                        className="w-9 h-9 border border-slate-200 rounded-lg p-0 bg-transparent cursor-pointer"
+                        value={newWalColor}
+                        onChange={(e) => setNewWalColor(e.target.value)}
+                      />
+                    </div>
                   </div>
                   <div className="flex gap-2">
                     <Button type="submit" className="flex-grow h-8 bg-blue-600 text-white font-bold text-xs rounded-lg">
@@ -603,6 +676,53 @@ export default function SettingsPage() {
                   onChange={(e) => setWalName(e.target.value)}
                   required
                 />
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="w-provider" className="text-slate-705 font-bold text-xs">Wallet Provider</Label>
+                <select
+                  id="w-provider"
+                  className="w-full h-10 px-2 border border-slate-200 text-slate-800 font-semibold text-sm rounded-lg bg-white"
+                  value={walProvider}
+                  onChange={(e) => setWalProvider(e.target.value as DBWallet['provider'])}
+                >
+                  {['FINO', 'PhonePe', 'Google Pay', 'Spice Money', 'Other'].map(p => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="w-icon" className="text-slate-705 font-bold text-xs">Icon Style</Label>
+                <select
+                  id="w-icon"
+                  className="w-full h-10 px-2 border border-slate-200 text-slate-800 font-semibold text-sm rounded-lg bg-white"
+                  value={walIcon}
+                  onChange={(e) => setWalIcon(e.target.value)}
+                >
+                  {['wallet', 'fino', 'jio', 'airtel', 'phonepe', 'google-pay', 'spice-money'].map(i => (
+                    <option key={i} value={i}>{i}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="w-color" className="text-slate-705 font-bold text-xs">Brand Color</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="w-color"
+                    className="h-10 border-slate-200 text-sm font-mono rounded-lg flex-1"
+                    value={walColor}
+                    onChange={(e) => setWalColor(e.target.value)}
+                    required
+                  />
+                  <input
+                    type="color"
+                    className="w-10 h-10 border border-slate-200 rounded-lg p-0 bg-transparent cursor-pointer"
+                    value={walColor}
+                    onChange={(e) => setWalColor(e.target.value)}
+                  />
+                </div>
               </div>
 
               {/* Toggle Wallet Active */}

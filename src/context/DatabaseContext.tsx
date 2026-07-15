@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { db, type Wallet, type Service, type ServiceWalletRule, type Transaction, type WalletLedger, type CashLedger, type Setting, type SyncItem } from '@/lib/db';
+import { db, type Wallet, type Service, type ServiceWalletRule, type Transaction, type WalletLedger, type CashLedger, type Setting, type SyncItem, type WalletTransfer } from '@/lib/db';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useLiveQuery } from 'dexie-react-hooks';
 
@@ -13,7 +13,7 @@ interface DatabaseContextType {
   transactions: Transaction[];
   cashBalance: number;
   walletBalances: Record<string, number>;
-  settings: Record<string, any>;
+  settings: Record<string, unknown>;
   isLoaded: boolean;
   
   // Actions
@@ -22,11 +22,11 @@ interface DatabaseContextType {
   restoreTransaction: (transactionId: string) => Promise<void>;
   adjustWalletBalance: (walletId: string | 'CASH', newBalance: number, reason: string) => Promise<void>;
   transferWallets: (sourceWalletId: string | 'CASH', destWalletId: string | 'CASH', amount: number, notes: string) => Promise<void>;
-  updateSetting: (key: string, value: any) => Promise<void>;
+  updateSetting: (key: string, value: unknown) => Promise<void>;
   
   // Wallet CRUD
-  addWallet: (name: string) => Promise<string>;
-  editWallet: (id: string, name: string, sortOrder: number, isActive: boolean) => Promise<void>;
+  addWallet: (name: string, provider: Wallet['provider'], icon: string | null, color: string | null) => Promise<string>;
+  editWallet: (id: string, name: string, provider: Wallet['provider'], icon: string | null, color: string | null, sortOrder: number, isActive: boolean) => Promise<void>;
   deleteWallet: (id: string) => Promise<void>;
   reorderWallets: (walletIds: string[]) => Promise<void>;
 
@@ -48,14 +48,17 @@ export const useDatabase = () => {
 };
 
 export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [isOnline, setIsOnline] = useState<boolean>(true);
-  const [syncStatus, setSyncStatus] = useState<'synced' | 'pending' | 'local_only'>('local_only');
+  const [isOnline, setIsOnline] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return navigator.onLine;
+    }
+    return true;
+  });
   const [isLoaded, setIsLoaded] = useState<boolean>(false);
 
   // Monitor online status
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      setIsOnline(navigator.onLine);
       const handleOnline = () => setIsOnline(true);
       const handleOffline = () => setIsOnline(false);
       window.addEventListener('online', handleOnline);
@@ -69,14 +72,14 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Determine sync status based on queue length and supabase configuration
   const queueLength = useLiveQuery(() => db.sync_queue.count()) || 0;
-  
-  useEffect(() => {
+
+  const syncStatus = React.useMemo<'synced' | 'pending' | 'local_only'>(() => {
     if (!isSupabaseConfigured()) {
-      setSyncStatus('local_only');
+      return 'local_only';
     } else if (queueLength > 0) {
-      setSyncStatus('pending');
+      return 'pending';
     } else {
-      setSyncStatus('synced');
+      return 'synced';
     }
   }, [queueLength]);
 
@@ -98,49 +101,121 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Convert rawSettings array to key-value record
   const settings = React.useMemo(() => {
-    return rawSettings.reduce<Record<string, any>>((acc, item) => {
+    return rawSettings.reduce<Record<string, unknown>>((acc, item) => {
       acc[item.key] = item.value;
       return acc;
     }, {});
   }, [rawSettings]);
 
-  // Calculate balances autoritatively: Opening + Ledgers where transaction is NOT soft-deleted
-  const { cashBalance, walletBalances } = React.useMemo(() => {
-    // 1. Create a Set of transaction IDs that are NOT soft-deleted
+  // Local time date helpers
+  const getLocalDDMMYYYY = (date: Date = new Date()) => {
+    const d = String(date.getDate()).padStart(2, '0');
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const y = date.getFullYear();
+    return `${d}${m}${y}`;
+  };
+
+  const getLocalYYYYMMDD = (date: Date = new Date()) => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
+  // Recalculate Wallet Ledger Balances
+  const recalculateWalletBalances = async (walletId: string) => {
+    const rawEntries = await db.wallet_ledger.where('wallet_id').equals(walletId).toArray();
+    const entries = rawEntries.sort((a, b) => a.created_at.localeCompare(b.created_at));
+    const txs = await db.transactions.toArray();
     const activeTxIds = new Set<string>();
-    transactions.forEach(tx => {
-      if (tx.deleted_at === null) {
-        activeTxIds.add(tx.id);
+    txs.forEach(t => {
+      if (t.is_deleted === 0) {
+        activeTxIds.add(t.id);
       }
     });
 
-    // 2. Sum Cash Ledger
+    let currentBal = 0;
+    for (const entry of entries) {
+      const isTxActive = entry.transaction_id === null || activeTxIds.has(entry.transaction_id);
+      const effectiveAmount = isTxActive ? entry.amount : 0;
+
+      const prevBal = currentBal;
+      const runBal = currentBal + effectiveAmount;
+      currentBal = runBal;
+
+      if (entry.previous_balance !== prevBal || entry.running_balance !== runBal) {
+        await db.wallet_ledger.update(entry.id, {
+          previous_balance: prevBal,
+          running_balance: runBal
+        });
+        const updatedEntry = { ...entry, previous_balance: prevBal, running_balance: runBal };
+        await queueSync('wallet_ledger', 'UPDATE', entry.id, updatedEntry);
+      }
+    }
+  };
+
+  // Recalculate Cash Ledger Balances
+  const recalculateCashBalances = async () => {
+    const rawEntries = await db.cash_ledger.toArray();
+    const entries = rawEntries.sort((a, b) => a.created_at.localeCompare(b.created_at));
+    const txs = await db.transactions.toArray();
+    const activeTxIds = new Set<string>();
+    txs.forEach(t => {
+      if (t.is_deleted === 0) {
+        activeTxIds.add(t.id);
+      }
+    });
+
+    let currentCash = 0;
+    for (const entry of entries) {
+      const isTxActive = entry.transaction_id === null || activeTxIds.has(entry.transaction_id);
+      const effectiveAmount = isTxActive ? entry.amount : 0;
+
+      const prevCash = currentCash;
+      const runCash = currentCash + effectiveAmount;
+      currentCash = runCash;
+
+      if (entry.previous_cash !== prevCash || entry.running_cash !== runCash) {
+        await db.cash_ledger.update(entry.id, {
+          previous_cash: prevCash,
+          running_cash: runCash
+        });
+        const updatedEntry = { ...entry, previous_cash: prevCash, running_cash: runCash };
+        await queueSync('cash_ledger', 'UPDATE', entry.id, updatedEntry);
+      }
+    }
+  };
+
+  // Calculate balances autoritatively: Using stored running balances
+  const { cashBalance, walletBalances } = React.useMemo(() => {
     let cash = 0;
-    cashLedger.forEach(entry => {
-      // If linked to transaction, only add if transaction is active (not deleted)
-      if (entry.transaction_id === null || activeTxIds.has(entry.transaction_id)) {
-        cash += entry.amount;
-      }
-    });
+    if (cashLedger.length > 0) {
+      const sortedCash = [...cashLedger].sort((a, b) => a.created_at.localeCompare(b.created_at));
+      cash = sortedCash[sortedCash.length - 1]?.running_cash || 0;
+    }
 
-    // 3. Sum Wallet Ledger grouped by Wallet
     const wBalances: Record<string, number> = {};
-    // Seed with zero for all known wallets
     allWalletsForAdmin.forEach(w => {
       wBalances[w.id] = 0;
     });
 
+    const latestEntries: Record<string, WalletLedger> = {};
     walletLedger.forEach(entry => {
-      if (entry.transaction_id === null || activeTxIds.has(entry.transaction_id)) {
-        wBalances[entry.wallet_id] = (wBalances[entry.wallet_id] || 0) + entry.amount;
+      const existing = latestEntries[entry.wallet_id];
+      if (!existing || entry.created_at.localeCompare(existing.created_at) > 0) {
+        latestEntries[entry.wallet_id] = entry;
       }
+    });
+
+    Object.keys(latestEntries).forEach(wId => {
+      wBalances[wId] = latestEntries[wId].running_balance || 0;
     });
 
     return {
       cashBalance: cash,
       walletBalances: wBalances
     };
-  }, [transactions, cashLedger, walletLedger, allWalletsForAdmin]);
+  }, [cashLedger, walletLedger, allWalletsForAdmin]);
 
   // Safe device vibration
   const triggerVibration = () => {
@@ -149,25 +224,32 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
-  // Generate sequential transaction number
+  // Generate sequential transaction number in DDMMYYYY-XXX format (restarts daily)
   const generateNextTransactionNumber = async (): Promise<string> => {
-    const txs = await db.transactions.toArray();
-    let maxNum = 0;
+    const dateStr = getLocalDDMMYYYY();
+    const prefix = `${dateStr}-`;
+    const txs = await db.transactions
+      .where('transaction_number')
+      .startsWith(prefix)
+      .toArray();
+
+    let maxSeq = 0;
     txs.forEach(tx => {
-      const match = tx.transaction_number.match(/^TX(\d+)$/);
-      if (match) {
-        const num = parseInt(match[1], 10);
-        if (num > maxNum) {
-          maxNum = num;
+      const parts = tx.transaction_number.split('-');
+      if (parts.length === 2) {
+        const seq = parseInt(parts[1], 10);
+        if (!isNaN(seq) && seq > maxSeq) {
+          maxSeq = seq;
         }
       }
     });
-    const nextNum = maxNum + 1;
-    return `TX${nextNum.toString().padStart(6, '0')}`;
+
+    const nextSeq = maxSeq + 1;
+    return `${prefix}${String(nextSeq).padStart(3, '0')}`;
   };
 
   // Push task to sync queue
-  const queueSync = async (table: string, action: 'INSERT' | 'UPDATE' | 'DELETE', key: string, data: any) => {
+  const queueSync = async (table: string, action: 'INSERT' | 'UPDATE' | 'DELETE', key: string, data: unknown) => {
     if (!isSupabaseConfigured()) return;
     
     // Check if there is already a sync item for this key in this table to prevent redundant work
@@ -213,10 +295,11 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         
         if (item.action === 'INSERT' || item.action === 'UPDATE') {
           // Clean data if needed
-          const syncData = { ...item.data };
+          const syncData = { ...(item.data as Record<string, unknown>) };
           // Convert boolean numbers to true boolean for PG database compatibility
           if ('is_active' in syncData) syncData.is_active = syncData.is_active === 1;
           if ('requires_wallet_selection' in syncData) syncData.requires_wallet_selection = syncData.requires_wallet_selection === 1;
+          if ('is_deleted' in syncData) syncData.is_deleted = syncData.is_deleted === 1;
           if ('synced' in syncData) syncData.synced = true; // Mark synced on remote
 
           const { error } = await supabase.from(item.table).upsert(syncData);
@@ -284,6 +367,9 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           await db.wallets.put({
             id: item.id,
             name: item.name,
+            provider: item.provider,
+            icon: item.icon,
+            color: item.color,
             is_active: item.is_active ? 1 : 0,
             sort_order: item.sort_order,
             created_at: item.created_at,
@@ -321,7 +407,24 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
       }
 
-      // 5. Pull transactions
+      // 5. Pull wallet transfers
+      const { data: wtData } = await supabase.from('wallet_transfers').select('*');
+      if (wtData) {
+        for (const item of wtData) {
+          await db.wallet_transfers.put({
+            id: item.id,
+            source_wallet_id: item.source_wallet_id,
+            destination_wallet_id: item.destination_wallet_id,
+            amount: parseFloat(item.amount),
+            notes: item.notes,
+            created_by: item.created_by,
+            created_at: item.created_at,
+            updated_at: item.updated_at
+          });
+        }
+      }
+
+      // 6. Pull transactions
       const { data: txData } = await supabase.from('transactions').select('*');
       if (txData) {
         for (const item of txData) {
@@ -329,21 +432,27 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             id: item.id,
             service_id: item.service_id,
             wallet_id: item.wallet_id,
+            transfer_id: item.transfer_id,
             amount: parseFloat(item.amount),
+            direction: item.direction,
             notes: item.notes,
             transaction_number: item.transaction_number,
             status: 'synced',
             synced: 1,
             created_local: item.created_local ? 1 : 0,
             synced_at: item.synced_at,
+            is_deleted: item.is_deleted ? 1 : 0,
             deleted_at: item.deleted_at,
+            restored_at: item.restored_at,
+            transaction_date: item.transaction_date,
+            created_by: item.created_by,
             created_at: item.created_at,
             updated_at: item.updated_at
           });
         }
       }
 
-      // 6. Pull wallet ledger
+      // 7. Pull wallet ledger
       const { data: wlData } = await supabase.from('wallet_ledger').select('*');
       if (wlData) {
         for (const item of wlData) {
@@ -351,24 +460,30 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             id: item.id,
             wallet_id: item.wallet_id,
             transaction_id: item.transaction_id,
+            previous_balance: parseFloat(item.previous_balance || '0'),
             amount: parseFloat(item.amount),
+            running_balance: parseFloat(item.running_balance || '0'),
             ledger_type: item.ledger_type,
             notes: item.notes,
+            created_by: item.created_by,
             created_at: item.created_at
           });
         }
       }
 
-      // 7. Pull cash ledger
+      // 8. Pull cash ledger
       const { data: clData } = await supabase.from('cash_ledger').select('*');
       if (clData) {
         for (const item of clData) {
           await db.cash_ledger.put({
             id: item.id,
             transaction_id: item.transaction_id,
+            previous_cash: parseFloat(item.previous_cash || '0'),
             amount: parseFloat(item.amount),
+            running_cash: parseFloat(item.running_cash || '0'),
             ledger_type: item.ledger_type,
             notes: item.notes,
+            created_by: item.created_by,
             created_at: item.created_at
           });
         }
@@ -397,7 +512,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           { id: crypto.randomUUID(), name: 'VI Recharge', type: 'vi_recharge', color: '#eb0029', is_active: 1, sort_order: 3, quick_amounts: [149, 199, 239, 249, 299, 349, 399, 449, 599, 719, 799, 999], requires_wallet_selection: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
           { id: crypto.randomUUID(), name: 'BSNL Recharge', type: 'bsnl_recharge', color: '#0f68b3', is_active: 1, sort_order: 4, quick_amounts: [149, 199, 239, 249, 299, 349, 399, 449, 599, 719, 799, 999], requires_wallet_selection: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
           { id: crypto.randomUUID(), name: 'AEPS Cash Withdrawal', type: 'aeps_withdrawal', color: '#10b981', is_active: 1, sort_order: 5, quick_amounts: [500, 1000, 1500, 2000, 2500, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000], requires_wallet_selection: 0, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-          { id: crypto.randomUUID(), name: 'Money Transfer', type: 'money_transfer', color: '#3b82f6', is_active: 1, sort_order: 6, quick_amounts: [], requires_wallet_selection: 0, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+          { id: crypto.randomUUID(), name: 'Money Transfer', type: 'money_transfer', color: '#3b82f6', is_active: 1, sort_order: 6, quick_amounts: [500, 1000, 1500, 2000, 2500, 3000, 5000, 7000, 10000], requires_wallet_selection: 0, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
           { id: crypto.randomUUID(), name: 'Electricity Bill Payment', type: 'electricity_bill', color: '#0d9488', is_active: 1, sort_order: 7, quick_amounts: [], requires_wallet_selection: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
           { id: crypto.randomUUID(), name: 'Balance Enquiry', type: 'balance_enquiry', color: '#f97316', is_active: 1, sort_order: 8, quick_amounts: [], requires_wallet_selection: 0, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
           { id: crypto.randomUUID(), name: 'Loan Repayment', type: 'loan_repayment', color: '#8b5cf6', is_active: 1, sort_order: 9, quick_amounts: [], requires_wallet_selection: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
@@ -443,22 +558,36 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const transactionId = crypto.randomUUID();
     const txNumber = await generateNextTransactionNumber();
     const nowStr = new Date().toISOString();
+    const dateStr = getLocalYYYYMMDD();
 
     const service = await db.services.get(serviceId);
     if (!service) throw new Error(`Service ${serviceId} not found`);
+
+    // Amount validation
+    const isEnquiry = service.type === 'balance_enquiry';
+    if (!isEnquiry && amount <= 0) {
+      throw new Error('Transaction amount must be greater than 0');
+    }
+
+    const direction = (service.type === 'aeps_withdrawal' || service.type === 'balance_enquiry') ? 'CREDIT' : 'DEBIT';
 
     const newTx: Transaction = {
       id: transactionId,
       service_id: serviceId,
       wallet_id: walletId,
+      transfer_id: null,
       amount,
+      direction,
       notes,
       transaction_number: txNumber,
       status: 'pending',
       synced: 0,
       created_local: 1,
       synced_at: null,
+      is_deleted: 0,
       deleted_at: null,
+      restored_at: null,
+      transaction_date: dateStr,
       created_at: nowStr,
       updated_at: nowStr
     };
@@ -480,10 +609,15 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         const entryAmount = amount * factor;
 
         if (rule.direction === 'CASH') {
+          const latestCash = await db.cash_ledger.orderBy('created_at').last();
+          const prevCash = latestCash?.running_cash || 0;
+
           const cashEntry: CashLedger = {
             id: crypto.randomUUID(),
             transaction_id: transactionId,
+            previous_cash: prevCash,
             amount: entryAmount,
+            running_cash: prevCash + entryAmount,
             ledger_type: 'transaction',
             notes: notes || `${service.name} transaction`,
             created_at: nowStr
@@ -494,11 +628,16 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           // Mapped wallet id from rule or dynamically selected wallet
           const mappedWalletId = rule.wallet_id || walletId;
           if (mappedWalletId) {
+            const latestWallet = await db.wallet_ledger.where('wallet_id').equals(mappedWalletId).sortBy('created_at');
+            const prevBal = latestWallet.length > 0 ? latestWallet[latestWallet.length - 1].running_balance : 0;
+
             const walletEntry: WalletLedger = {
               id: crypto.randomUUID(),
               wallet_id: mappedWalletId,
               transaction_id: transactionId,
+              previous_balance: prevBal,
               amount: entryAmount,
+              running_balance: prevBal + entryAmount,
               ledger_type: 'transaction',
               notes: notes || `${service.name} transaction`,
               created_at: nowStr
@@ -509,6 +648,12 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
       }
     });
+
+    // Recalculate running balances to be absolutely consistent
+    if (walletId) {
+      await recalculateWalletBalances(walletId);
+    }
+    await recalculateCashBalances();
 
     // Run sync asynchronously
     runSyncWorker();
@@ -522,12 +667,18 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const tx = await db.transactions.get(transactionId);
     if (!tx) return;
 
-    const updatedTx = { ...tx, deleted_at: nowStr, updated_at: nowStr };
+    const updatedTx = { ...tx, is_deleted: 1, deleted_at: nowStr, updated_at: nowStr };
 
     await db.transaction('rw', [db.transactions, db.sync_queue], async () => {
-      await db.transactions.update(transactionId, { deleted_at: nowStr, updated_at: nowStr });
+      await db.transactions.update(transactionId, { is_deleted: 1, deleted_at: nowStr, updated_at: nowStr });
       await queueSync('transactions', 'UPDATE', transactionId, updatedTx);
     });
+
+    // Recalculate balances sequentially (ledger entries from deleted transactions will count as 0 balance change)
+    if (tx.wallet_id) {
+      await recalculateWalletBalances(tx.wallet_id);
+    }
+    await recalculateCashBalances();
 
     runSyncWorker();
   };
@@ -539,18 +690,27 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const tx = await db.transactions.get(transactionId);
     if (!tx) return;
 
-    const updatedTx = { ...tx, deleted_at: null, updated_at: nowStr };
+    const updatedTx = { ...tx, is_deleted: 0, deleted_at: null, restored_at: nowStr, updated_at: nowStr };
 
     await db.transaction('rw', [db.transactions, db.sync_queue], async () => {
-      await db.transactions.update(transactionId, { deleted_at: null, updated_at: nowStr });
+      await db.transactions.update(transactionId, { is_deleted: 0, deleted_at: null, restored_at: nowStr, updated_at: nowStr });
       await queueSync('transactions', 'UPDATE', transactionId, updatedTx);
     });
+
+    // Recalculate balances sequentially to restore original ledger effects
+    if (tx.wallet_id) {
+      await recalculateWalletBalances(tx.wallet_id);
+    }
+    await recalculateCashBalances();
 
     runSyncWorker();
   };
 
-  // Adjust Balance (Create new ledger entry)
+  // Adjust Balance (Create new ledger entry with mandatory reason)
   const adjustWalletBalance = async (walletId: string | 'CASH', newBalance: number, reason: string) => {
+    if (!reason || !reason.trim()) {
+      throw new Error('Adjustment reason is required.');
+    }
     triggerVibration();
     const nowStr = new Date().toISOString();
 
@@ -560,79 +720,126 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (diff === 0) return; // No adjustment needed
 
     if (walletId === 'CASH') {
+      const latestCash = await db.cash_ledger.orderBy('created_at').last();
+      const prevCash = latestCash?.running_cash || 0;
+
       const entry: CashLedger = {
         id: crypto.randomUUID(),
         transaction_id: null,
+        previous_cash: prevCash,
         amount: diff,
+        running_cash: prevCash + diff,
         ledger_type: 'adjustment',
-        notes: reason || 'Opening Balance Adjustment',
+        notes: reason,
         created_at: nowStr
       };
       await db.transaction('rw', [db.cash_ledger, db.sync_queue], async () => {
         await db.cash_ledger.add(entry);
         await queueSync('cash_ledger', 'INSERT', entry.id, entry);
       });
+      await recalculateCashBalances();
     } else {
+      const latestWallet = await db.wallet_ledger.where('wallet_id').equals(walletId).sortBy('created_at');
+      const prevBal = latestWallet.length > 0 ? latestWallet[latestWallet.length - 1].running_balance : 0;
+
       const entry: WalletLedger = {
         id: crypto.randomUUID(),
         wallet_id: walletId,
         transaction_id: null,
+        previous_balance: prevBal,
         amount: diff,
+        running_balance: prevBal + diff,
         ledger_type: 'adjustment',
-        notes: reason || 'Opening Balance Adjustment',
+        notes: reason,
         created_at: nowStr
       };
       await db.transaction('rw', [db.wallet_ledger, db.sync_queue], async () => {
         await db.wallet_ledger.add(entry);
         await queueSync('wallet_ledger', 'INSERT', entry.id, entry);
       });
+      await recalculateWalletBalances(walletId);
     }
 
     runSyncWorker();
   };
 
-  // Atomic Wallet/Cash Transfer
+  // Atomic Wallet/Cash Transfer using dedicated wallet_transfers table
   const transferWallets = async (
     sourceWalletId: string | 'CASH',
     destWalletId: string | 'CASH',
     amount: number,
     notes: string
   ) => {
+    if (amount <= 0) {
+      throw new Error('Transfer amount must be greater than 0');
+    }
     triggerVibration();
+    const transferId = crypto.randomUUID();
     const transactionId = crypto.randomUUID();
     const txNumber = await generateNextTransactionNumber();
     const nowStr = new Date().toISOString();
+    const dateStr = getLocalYYYYMMDD();
+
+    // Create structured Transfer record
+    const newTransfer: WalletTransfer = {
+      id: transferId,
+      source_wallet_id: sourceWalletId === 'CASH' ? null : sourceWalletId,
+      destination_wallet_id: destWalletId === 'CASH' ? null : destWalletId,
+      amount,
+      notes: notes || 'Self transfer',
+      created_at: nowStr,
+      updated_at: nowStr
+    };
+
+    // Create Main Transaction reference
+    const sourceName = sourceWalletId === 'CASH' ? 'Cash' : wallets.find(w => w.id === sourceWalletId)?.name || 'Wallet';
+    const destName = destWalletId === 'CASH' ? 'Cash' : wallets.find(w => w.id === destWalletId)?.name || 'Wallet';
+    const txNotes = `Transfer from ${sourceName} to ${destName}. ${notes || ''}`.trim();
 
     const newTx: Transaction = {
       id: transactionId,
-      service_id: null, // System transaction
+      service_id: null,
       wallet_id: sourceWalletId !== 'CASH' ? sourceWalletId : (destWalletId !== 'CASH' ? destWalletId : null),
+      transfer_id: transferId,
       amount,
-      notes: `Transfer from ${sourceWalletId === 'CASH' ? 'Cash' : 'Wallet'} to ${destWalletId === 'CASH' ? 'Cash' : 'Wallet'}. ${notes}`,
+      direction: 'DEBIT',
+      notes: txNotes,
       transaction_number: txNumber,
       status: 'pending',
       synced: 0,
       created_local: 1,
       synced_at: null,
+      is_deleted: 0,
       deleted_at: null,
+      restored_at: null,
+      transaction_date: dateStr,
       created_at: nowStr,
       updated_at: nowStr
     };
 
-    const sourceNotes = `Transfer Out - Ref: ${txNumber}. ${notes}`;
-    const destNotes = `Transfer In - Ref: ${txNumber}. ${notes}`;
+    const sourceNotes = `Transfer Out - Ref: ${txNumber}. ${notes || ''}`.trim();
+    const destNotes = `Transfer In - Ref: ${txNumber}. ${notes || ''}`.trim();
 
-    await db.transaction('rw', [db.transactions, db.wallet_ledger, db.cash_ledger, db.sync_queue], async () => {
-      // Write Transaction record
+    await db.transaction('rw', [db.wallet_transfers, db.transactions, db.wallet_ledger, db.cash_ledger, db.sync_queue], async () => {
+      // 1. Write structured transfer
+      await db.wallet_transfers.add(newTransfer);
+      await queueSync('wallet_transfers', 'INSERT', transferId, newTransfer);
+
+      // 2. Write unified transaction
       await db.transactions.add(newTx);
       await queueSync('transactions', 'INSERT', transactionId, newTx);
 
-      // Debit Source
+      // 3. Write Debit Ledger Entry
       if (sourceWalletId === 'CASH') {
+        const latestCash = await db.cash_ledger.orderBy('created_at').last();
+        const prevCash = latestCash?.running_cash || 0;
+
         const sourceEntry: CashLedger = {
           id: crypto.randomUUID(),
           transaction_id: transactionId,
+          previous_cash: prevCash,
           amount: -amount,
+          running_cash: prevCash - amount,
           ledger_type: 'transfer',
           notes: sourceNotes,
           created_at: nowStr
@@ -640,11 +847,16 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         await db.cash_ledger.add(sourceEntry);
         await queueSync('cash_ledger', 'INSERT', sourceEntry.id, sourceEntry);
       } else {
+        const latestW = await db.wallet_ledger.where('wallet_id').equals(sourceWalletId).sortBy('created_at');
+        const prevW = latestW.length > 0 ? latestW[latestW.length - 1].running_balance : 0;
+
         const sourceEntry: WalletLedger = {
           id: crypto.randomUUID(),
           wallet_id: sourceWalletId,
           transaction_id: transactionId,
+          previous_balance: prevW,
           amount: -amount,
+          running_balance: prevW - amount,
           ledger_type: 'transfer',
           notes: sourceNotes,
           created_at: nowStr
@@ -653,12 +865,17 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         await queueSync('wallet_ledger', 'INSERT', sourceEntry.id, sourceEntry);
       }
 
-      // Credit Destination
+      // 4. Write Credit Ledger Entry
       if (destWalletId === 'CASH') {
+        const latestCash = await db.cash_ledger.orderBy('created_at').last();
+        const prevCash = latestCash?.running_cash || 0;
+
         const destEntry: CashLedger = {
           id: crypto.randomUUID(),
           transaction_id: transactionId,
+          previous_cash: prevCash,
           amount: amount,
+          running_cash: prevCash + amount,
           ledger_type: 'transfer',
           notes: destNotes,
           created_at: nowStr
@@ -666,11 +883,16 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         await db.cash_ledger.add(destEntry);
         await queueSync('cash_ledger', 'INSERT', destEntry.id, destEntry);
       } else {
+        const latestW = await db.wallet_ledger.where('wallet_id').equals(destWalletId).sortBy('created_at');
+        const prevW = latestW.length > 0 ? latestW[latestW.length - 1].running_balance : 0;
+
         const destEntry: WalletLedger = {
           id: crypto.randomUUID(),
           wallet_id: destWalletId,
           transaction_id: transactionId,
+          previous_balance: prevW,
           amount: amount,
+          running_balance: prevW + amount,
           ledger_type: 'transfer',
           notes: destNotes,
           created_at: nowStr
@@ -680,16 +902,28 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
     });
 
+    // Run sequential balance recalculations
+    if (sourceWalletId === 'CASH' || destWalletId === 'CASH') {
+      await recalculateCashBalances();
+    }
+    if (sourceWalletId !== 'CASH') {
+      await recalculateWalletBalances(sourceWalletId);
+    }
+    if (destWalletId !== 'CASH') {
+      await recalculateWalletBalances(destWalletId);
+    }
+
     runSyncWorker();
   };
 
   // Update Setting (Shop configs, etc.)
-  const updateSetting = async (key: string, value: any) => {
+  const updateSetting = async (key: string, value: unknown) => {
     const nowStr = new Date().toISOString();
+    const existing = rawSettings.find(s => s.key === key);
     const updatedSetting: Setting = {
       key,
       value,
-      created_at: settings[key]?.created_at || nowStr,
+      created_at: existing?.created_at || nowStr,
       updated_at: nowStr
     };
 
@@ -702,7 +936,13 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   // Wallet CRUD
-  const addWallet = async (name: string): Promise<string> => {
+  const addWallet = async (
+    name: string,
+    provider: Wallet['provider'],
+    icon: string | null,
+    color: string | null
+  ): Promise<string> => {
+    if (!name.trim()) throw new Error('Wallet name cannot be empty');
     triggerVibration();
     const id = crypto.randomUUID();
     const nowStr = new Date().toISOString();
@@ -710,7 +950,10 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     const newWallet: Wallet = {
       id,
-      name,
+      name: name.trim(),
+      provider,
+      icon,
+      color,
       is_active: 1,
       sort_order: count,
       created_at: nowStr,
@@ -726,23 +969,46 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return id;
   };
 
-  const editWallet = async (id: string, name: string, sortOrder: number, isActive: boolean) => {
+  const editWallet = async (
+    id: string,
+    name: string,
+    provider: Wallet['provider'],
+    icon: string | null,
+    color: string | null,
+    sortOrder: number,
+    isActive: boolean
+  ) => {
+    if (!name.trim()) throw new Error('Wallet name cannot be empty');
     const w = await db.wallets.get(id);
     if (!w) return;
 
     const nowStr = new Date().toISOString();
     const updatedWallet: Wallet = {
       ...w,
-      name,
+      name: name.trim(),
+      provider,
+      icon,
+      color,
       sort_order: sortOrder,
       is_active: isActive ? 1 : 0,
       updated_at: nowStr
     };
 
     await db.transaction('rw', [db.wallets, db.sync_queue], async () => {
-      await db.wallets.update(id, { name, sort_order: sortOrder, is_active: isActive ? 1 : 0, updated_at: nowStr });
+      await db.wallets.update(id, {
+        name: name.trim(),
+        provider,
+        icon,
+        color,
+        sort_order: sortOrder,
+        is_active: isActive ? 1 : 0,
+        updated_at: nowStr
+      });
       await queueSync('wallets', 'UPDATE', id, updatedWallet);
     });
+
+    // If wallet is toggled or updated, trigger recalculations
+    await recalculateWalletBalances(id);
 
     runSyncWorker();
   };
@@ -784,13 +1050,14 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     quick_amounts: number[],
     requires_wallet_selection: boolean
   ) => {
+    if (!name.trim()) throw new Error('Service name cannot be empty');
     const s = await db.services.get(id);
     if (!s) return;
 
     const nowStr = new Date().toISOString();
     const updated: Service = {
       ...s,
-      name,
+      name: name.trim(),
       color,
       is_active: is_active ? 1 : 0,
       sort_order,
@@ -801,7 +1068,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     await db.transaction('rw', [db.services, db.sync_queue], async () => {
       await db.services.update(id, {
-        name,
+        name: name.trim(),
         color,
         is_active: is_active ? 1 : 0,
         sort_order,
@@ -815,7 +1082,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     runSyncWorker();
   };
 
-  // Complete first-time configuration
+  // Complete first-time configuration with smart defaults
   const finishSetup = async (openingCash: number, initialWallets: { name: string; balance: number }[]) => {
     const nowStr = new Date().toISOString();
 
@@ -836,7 +1103,9 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const cashEntry: CashLedger = {
         id: crypto.randomUUID(),
         transaction_id: null,
+        previous_cash: 0,
         amount: openingCash,
+        running_cash: openingCash,
         ledger_type: 'opening',
         notes: 'Initial Cash Opening Balance',
         created_at: nowStr
@@ -852,9 +1121,48 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         const walletId = crypto.randomUUID();
         createdWalletMap[wallet.name] = walletId;
 
+        // Smart defaults for provider, icon, and color
+        let provider: Wallet['provider'] = 'Other';
+        let icon = 'wallet';
+        let color = '#475569';
+
+        const lowerName = wallet.name.toLowerCase();
+        if (lowerName.includes('fino')) {
+          provider = 'FINO';
+          icon = 'fino';
+          color = '#e21226';
+        } else if (lowerName.includes('jio')) {
+          provider = 'Other';
+          icon = 'jio';
+          color = '#0f3cc9';
+        } else if (lowerName.includes('airtel') || lowerName.includes('lapu')) {
+          provider = 'Other';
+          icon = 'airtel';
+          color = '#e21226';
+        } else if (lowerName.includes('vi ')) {
+          provider = 'Other';
+          icon = 'vi';
+          color = '#eb0029';
+        } else if (lowerName.includes('phonepe')) {
+          provider = 'PhonePe';
+          icon = 'phonepe';
+          color = '#5f259f';
+        } else if (lowerName.includes('google') || lowerName.includes('gpay')) {
+          provider = 'Google Pay';
+          icon = 'google-pay';
+          color = '#1a73e8';
+        } else if (lowerName.includes('spice')) {
+          provider = 'Spice Money';
+          icon = 'spice-money';
+          color = '#ff6600';
+        }
+
         const newWallet: Wallet = {
           id: walletId,
           name: wallet.name,
+          provider,
+          icon,
+          color,
           is_active: 1,
           sort_order: i,
           created_at: nowStr,
@@ -868,7 +1176,9 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             id: crypto.randomUUID(),
             wallet_id: walletId,
             transaction_id: null,
+            previous_balance: 0,
             amount: wallet.balance,
+            running_balance: wallet.balance,
             ledger_type: 'opening',
             notes: `Initial ${wallet.name} Opening Balance`,
             created_at: nowStr

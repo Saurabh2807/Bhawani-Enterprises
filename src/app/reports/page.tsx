@@ -18,47 +18,45 @@ export default function ReportsPage() {
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
 
-  // Reset custom dates on period change
-  useEffect(() => {
-    if (period !== 'custom') {
+  const handlePeriodChange = (p: 'today' | 'yesterday' | 'month' | 'custom') => {
+    setPeriod(p);
+    if (p !== 'custom') {
       setCustomStart('');
       setCustomEnd('');
     }
-  }, [period]);
+  };
 
   const reportData = useMemo(() => {
+    const getLocalYYYYMMDD = (date: Date = new Date()) => {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    };
+
+    const todayObj = new Date();
+    const todayStr = getLocalYYYYMMDD(todayObj);
+    
+    const yesterdayObj = new Date();
+    yesterdayObj.setDate(yesterdayObj.getDate() - 1);
+    const yesterdayStr = getLocalYYYYMMDD(yesterdayObj);
+
+    const startOfThisMonthObj = new Date(todayObj.getFullYear(), todayObj.getMonth(), 1);
+    const startOfThisMonthStr = getLocalYYYYMMDD(startOfThisMonthObj);
+
     // Filter active transactions for this range
     const filteredTxs = transactions.filter((tx) => {
-      if (tx.deleted_at !== null) return false;
-
-      const txDate = new Date(tx.created_at);
-      const today = new Date();
-      
-      const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-      const endOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
-      
-      const startOfYesterday = new Date(startOfToday.getTime() - 24 * 60 * 60 * 1000);
-      const endOfYesterday = new Date(endOfToday.getTime() - 24 * 60 * 60 * 1000);
-      
-      const startOfThisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      if (tx.is_deleted === 1) return false;
 
       if (period === 'today') {
-        return txDate >= startOfToday && txDate <= endOfToday;
+        return tx.transaction_date === todayStr;
       } else if (period === 'yesterday') {
-        return txDate >= startOfYesterday && txDate <= endOfYesterday;
+        return tx.transaction_date === yesterdayStr;
       } else if (period === 'month') {
-        return txDate >= startOfThisMonth && txDate <= endOfToday;
+        return tx.transaction_date >= startOfThisMonthStr && tx.transaction_date <= todayStr;
       } else if (period === 'custom') {
-        if (customStart) {
-          const start = new Date(customStart);
-          start.setHours(0, 0, 0, 0);
-          if (txDate < start) return false;
-        }
-        if (customEnd) {
-          const end = new Date(customEnd);
-          end.setHours(23, 59, 59, 999);
-          if (txDate > end) return false;
-        }
+        if (customStart && tx.transaction_date < customStart) return false;
+        if (customEnd && tx.transaction_date > customEnd) return false;
         return true;
       }
       return true;
@@ -66,7 +64,7 @@ export default function ReportsPage() {
 
     // Compute metrics
     let totalVolume = 0;
-    let transactionsCount = filteredTxs.length;
+    const transactionsCount = filteredTxs.length;
 
     // Recharge debit count/volume
     let rechargeVol = 0;
@@ -121,7 +119,7 @@ export default function ReportsPage() {
   const handleExportPDF = () => {
     try {
       const doc = new jsPDF();
-      const shopName = settings.shop_name || 'BHAWANI ENTERPRISES';
+      const shopName = (settings.shop_name as string) || 'BHAWANI ENTERPRISES';
       const nowStr = new Date().toLocaleString('en-IN');
 
       // Shop Name
@@ -191,7 +189,7 @@ export default function ReportsPage() {
       });
 
       // Section: Detailed Transactions List
-      const nextStartY = (doc as any).lastAutoTable.finalY + 12;
+      const nextStartY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 12;
       doc.setFontSize(12);
       doc.setTextColor(15, 23, 42);
       doc.setFont('helvetica', 'bold');
@@ -273,7 +271,7 @@ export default function ReportsPage() {
             {(['today', 'yesterday', 'month', 'custom'] as const).map((p) => (
               <button
                 key={p}
-                onClick={() => setPeriod(p)}
+                onClick={() => handlePeriodChange(p)}
                 className={`h-9 border rounded-xl font-bold text-xs uppercase tracking-wider transition-all active:scale-[0.97] ${
                   period === p
                     ? 'bg-blue-600 border-blue-600 text-white'

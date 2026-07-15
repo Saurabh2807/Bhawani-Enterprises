@@ -93,12 +93,16 @@ const ServiceLogo = ({ type, color }: { type: string; color?: string }) => {
 };
 
 // Wallet Logo / Icon mapper in lists
-const WalletIcon = ({ name }: { name: string }) => {
+const WalletIcon = ({ name, icon, color }: { name: string; icon?: string | null; color?: string | null }) => {
+  const cleanIcon = icon?.toLowerCase() || '';
   const cleanName = name.toLowerCase();
   
-  if (cleanName.includes('cash')) {
+  const bgCol = color ? `${color}1A` : 'rgba(71, 85, 105, 0.1)'; // 10% opacity
+  const textCol = color || '#475569';
+  
+  if (cleanIcon === 'cash' || cleanName.includes('cash')) {
     return (
-      <div className="w-9 h-9 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-600">
+      <div className="w-9 h-9 rounded-xl flex items-center justify-center font-bold" style={{ backgroundColor: bgCol, color: textCol }}>
         <svg className="w-5 h-5 stroke-[2.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <rect width="20" height="12" x="2" y="6" rx="2" />
           <circle cx="12" cy="12" r="2" />
@@ -107,44 +111,51 @@ const WalletIcon = ({ name }: { name: string }) => {
       </div>
     );
   }
-  if (cleanName.includes('fino')) {
+  if (cleanIcon === 'fino' || cleanName.includes('fino')) {
     return (
-      <div className="w-9 h-9 rounded-xl bg-red-500/10 flex items-center justify-center text-red-500 font-extrabold text-[11px]">
+      <div className="w-9 h-9 rounded-xl flex items-center justify-center font-extrabold text-[11px]" style={{ backgroundColor: bgCol, color: textCol }}>
         FN
       </div>
     );
   }
-  if (cleanName.includes('jio')) {
+  if (cleanIcon === 'jio' || cleanName.includes('jio')) {
     return (
-      <div className="w-9 h-9 rounded-xl bg-[#0f3cc9]/10 flex items-center justify-center text-[#0f3cc9] font-bold text-[10px] italic">
+      <div className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-[10px] italic" style={{ backgroundColor: bgCol, color: textCol }}>
         Jio
       </div>
     );
   }
-  if (cleanName.includes('airtel') || cleanName.includes('lapu')) {
+  if (cleanIcon === 'airtel' || cleanName.includes('airtel') || cleanName.includes('lapu')) {
     return (
-      <div className="w-9 h-9 rounded-xl bg-rose-500/10 flex items-center justify-center text-rose-600 font-black text-xs">
+      <div className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-xs" style={{ backgroundColor: bgCol, color: textCol }}>
         a
       </div>
     );
   }
-  if (cleanName.includes('phonepe')) {
+  if (cleanIcon === 'phonepe' || cleanName.includes('phonepe')) {
     return (
-      <div className="w-9 h-9 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-600 font-black text-[10px]">
+      <div className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-[10px]" style={{ backgroundColor: bgCol, color: textCol }}>
         PP
       </div>
     );
   }
-  if (cleanName.includes('google') || cleanName.includes('gpay')) {
+  if (cleanIcon === 'google-pay' || cleanIcon === 'gpay' || cleanName.includes('google') || cleanName.includes('gpay')) {
     return (
-      <div className="w-9 h-9 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-600 font-black text-[10px]">
+      <div className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-[10px]" style={{ backgroundColor: bgCol, color: textCol }}>
         G
+      </div>
+    );
+  }
+  if (cleanIcon === 'spice-money' || cleanName.includes('spice')) {
+    return (
+      <div className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-[10px]" style={{ backgroundColor: bgCol, color: textCol }}>
+        SP
       </div>
     );
   }
   
   return (
-    <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-500">
+    <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: bgCol, color: textCol }}>
       <CreditCard className="w-5 h-5" />
     </div>
   );
@@ -153,23 +164,25 @@ const WalletIcon = ({ name }: { name: string }) => {
 export default function HomePage() {
   const { isLoaded, settings, services, wallets, cashBalance, walletBalances, syncStatus } = useDatabase();
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
-  const [hideBalances, setHideBalances] = useState<boolean>(false);
+  const [hideBalances, setHideBalances] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('bhawani_hide_balances') === 'true';
+    }
+    return false;
+  });
 
   // Set time client side to avoid Next.js server/client hydration mismatch
   useEffect(() => {
-    setCurrentTime(new Date());
+    const initTimer = setTimeout(() => {
+      setCurrentTime(new Date());
+    }, 0);
     const timer = setInterval(() => {
       setCurrentTime(new Date());
     }, 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  // Set initial eye state from localStorage if exists
-  useEffect(() => {
-    const cached = localStorage.getItem('bhawani_hide_balances');
-    if (cached) {
-      setHideBalances(cached === 'true');
-    }
+    return () => {
+      clearTimeout(initTimer);
+      clearInterval(timer);
+    };
   }, []);
 
   const toggleHideBalances = () => {
@@ -213,7 +226,7 @@ export default function HomePage() {
         <div className="flex justify-between items-start">
           <div>
             <h1 className="text-xl font-extrabold tracking-tight uppercase">
-              {settings.shop_name || 'BHAWANI ENTERPRISES'}
+              {(settings.shop_name as string) || 'BHAWANI ENTERPRISES'}
             </h1>
             <div className="mt-2 text-xs font-semibold text-blue-150/90 space-y-0.5">
               <p>{dayStr}</p>
@@ -285,7 +298,7 @@ export default function HomePage() {
             {/* Cash in Shop Balance Card (Always First) */}
             <div className="flex-shrink-0 w-36 bg-slate-50/80 border border-slate-100 rounded-[20px] p-4 snap-start shadow-sm flex flex-col justify-between">
               <div className="flex justify-between items-start">
-                <WalletIcon name="cash" />
+                <WalletIcon name="cash" icon="cash" color="#10b981" />
               </div>
               <div className="mt-4">
                 <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">Cash in Shop</span>
@@ -302,7 +315,7 @@ export default function HomePage() {
                 className="flex-shrink-0 w-36 bg-slate-50/80 border border-slate-100 rounded-[20px] p-4 snap-start shadow-sm flex flex-col justify-between"
               >
                 <div className="flex justify-between items-start">
-                  <WalletIcon name={wallet.name} />
+                  <WalletIcon name={wallet.name} icon={wallet.icon} color={wallet.color} />
                 </div>
                 <div className="mt-4">
                   <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block truncate">

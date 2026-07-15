@@ -29,22 +29,35 @@ function LedgerContent() {
   // Sync state filter from search params if it changes
   useEffect(() => {
     if (defaultServiceId) {
-      setServiceFilter(defaultServiceId);
+      const timer = setTimeout(() => setServiceFilter(defaultServiceId), 0);
+      return () => clearTimeout(timer);
     }
   }, [defaultServiceId]);
 
-  // Reset custom dates when changing filter
-  useEffect(() => {
-    if (dateFilter !== 'custom') {
+  const handleDateFilterChange = (filter: 'today' | 'yesterday' | 'custom') => {
+    setDateFilter(filter);
+    if (filter !== 'custom') {
       setCustomStartDate('');
       setCustomEndDate('');
     }
-  }, [dateFilter]);
+  };
 
   const filteredTransactions = useMemo(() => {
+    const getLocalYYYYMMDD = (date: Date = new Date()) => {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    };
+
+    const todayStr = getLocalYYYYMMDD();
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = getLocalYYYYMMDD(yesterday);
+
     // Exclude soft-deleted transactions
     return transactions.filter((tx) => {
-      if (tx.deleted_at !== null) return false;
+      if (tx.is_deleted === 1) return false;
 
       // 1. Service Filter
       if (serviceFilter !== 'ALL') {
@@ -54,42 +67,20 @@ function LedgerContent() {
       // 2. Wallet Filter
       if (walletFilter !== 'ALL') {
         if (walletFilter === 'CASH') {
-          // Cash transactions: check if service is linked to Cash or wallet_id is null and service is not recharge
-          // Better: transactions that created a cash ledger entry.
-          // Since we cache cash ledger / wallets locally, let's check:
-          // A transaction belongs to Cash if its wallet_id is null (in some rules) OR it created a Cash ledger entry.
-          // To be safe, if walletFilter is CASH, we check if wallet_id is null.
           if (tx.wallet_id !== null) return false;
         } else {
           if (tx.wallet_id !== walletFilter) return false;
         }
       }
 
-      // 3. Date Filter
-      const txDate = new Date(tx.created_at);
-      const today = new Date();
-      
-      const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-      const endOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
-      
-      const startOfYesterday = new Date(startOfToday.getTime() - 24 * 60 * 60 * 1000);
-      const endOfYesterday = new Date(endOfToday.getTime() - 24 * 60 * 60 * 1000);
-
+      // 3. Date Filter using optimized transaction_date comparison
       if (dateFilter === 'today') {
-        if (txDate < startOfToday || txDate > endOfToday) return false;
+        if (tx.transaction_date !== todayStr) return false;
       } else if (dateFilter === 'yesterday') {
-        if (txDate < startOfYesterday || txDate > endOfYesterday) return false;
+        if (tx.transaction_date !== yesterdayStr) return false;
       } else if (dateFilter === 'custom') {
-        if (customStartDate) {
-          const customStart = new Date(customStartDate);
-          customStart.setHours(0, 0, 0, 0);
-          if (txDate < customStart) return false;
-        }
-        if (customEndDate) {
-          const customEnd = new Date(customEndDate);
-          customEnd.setHours(23, 59, 59, 999);
-          if (txDate > customEnd) return false;
-        }
+        if (customStartDate && tx.transaction_date < customStartDate) return false;
+        if (customEndDate && tx.transaction_date > customEndDate) return false;
       }
 
       // 4. Search Filter (Search amount, transaction number, notes, or service name)
@@ -116,7 +107,7 @@ function LedgerContent() {
   const handleExportPDF = () => {
     try {
       const doc = new jsPDF();
-      const shopName = settings.shop_name || 'BHAWANI ENTERPRISES';
+      const shopName = (settings.shop_name as string) || 'BHAWANI ENTERPRISES';
       
       // Header Section
       doc.setFontSize(20);
@@ -192,7 +183,7 @@ function LedgerContent() {
     setSearchTerm('');
     setWalletFilter('ALL');
     setServiceFilter('ALL');
-    setDateFilter('today');
+    handleDateFilterChange('today');
   };
 
   const totalCollected = filteredTransactions.reduce((sum, tx) => sum + tx.amount, 0);
@@ -250,7 +241,7 @@ function LedgerContent() {
           {(['today', 'yesterday', 'custom'] as const).map((filter) => (
             <button
               key={filter}
-              onClick={() => setDateFilter(filter)}
+              onClick={() => handleDateFilterChange(filter)}
               className={`flex-1 h-9 rounded-xl font-bold text-xs uppercase tracking-wider transition-all border active:scale-[0.98] ${
                 dateFilter === filter
                   ? 'bg-blue-600 border-blue-600 text-white'
