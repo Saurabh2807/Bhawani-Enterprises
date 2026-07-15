@@ -1306,8 +1306,28 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       value={{
         isOnline,
         syncStatus,
-        wallets: allWalletsForAdmin.filter(w => w.is_active === 1),
-        services: allServicesForAdmin.filter(s => s.is_active === 1),
+        wallets: (() => {
+          const seen = new Set<string>();
+          return allWalletsForAdmin
+            .filter(w => w.is_active === 1)
+            .filter(w => {
+              const nameLower = w.name.toLowerCase().trim();
+              if (seen.has(nameLower)) return false;
+              seen.add(nameLower);
+              return true;
+            });
+        })(),
+        services: (() => {
+          const seen = new Set<string>();
+          return allServicesForAdmin
+            .filter(s => s.is_active === 1)
+            .filter(s => {
+              const nameLower = s.name.toLowerCase().trim();
+              if (seen.has(nameLower)) return false;
+              seen.add(nameLower);
+              return true;
+            });
+        })(),
         transactions,
         cashBalance,
         walletBalances,
