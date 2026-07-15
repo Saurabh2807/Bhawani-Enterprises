@@ -4,7 +4,7 @@ import React, { useState, useMemo, useEffect, Suspense } from 'react';
 import { useDatabase } from '@/context/DatabaseContext';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { BottomNav } from '@/components/layout/BottomNav';
-import { Search, Calendar, Filter, FileDown, ArrowLeft, RefreshCw, X } from 'lucide-react';
+import { Search, Calendar, Filter, FileDown, ArrowLeft, RefreshCw, X, Trash2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -16,7 +16,7 @@ function LedgerContent() {
   const defaultServiceId = searchParams.get('serviceId') || '';
   const defaultWalletId = searchParams.get('walletId') || '';
 
-  const { isLoaded, transactions, services, wallets, settings } = useDatabase();
+  const { isLoaded, transactions, services, wallets, settings, deleteTransaction } = useDatabase();
 
   // Filters State
   const [searchTerm, setSearchTerm] = useState('');
@@ -388,13 +388,33 @@ function LedgerContent() {
                     </span>
                   </div>
                   
-                  <div className="text-right ml-4">
-                    <span className="text-[15px] font-black text-slate-900 block">
-                      {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(tx.amount)}
-                    </span>
-                    <span className={`text-[10px] font-bold ${tx.status === 'synced' ? 'text-emerald-500' : 'text-amber-500 animate-pulse'}`}>
-                      {tx.status === 'synced' ? 'Synced' : 'Pending'}
-                    </span>
+                  <div className="flex items-center gap-3 ml-4">
+                    <div className="text-right">
+                      <span className="text-[15px] font-black text-slate-900 block">
+                        {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(tx.amount)}
+                      </span>
+                      <span className={`text-[10px] font-bold ${tx.status === 'synced' ? 'text-emerald-500' : 'text-amber-500'}`}>
+                        {tx.status === 'synced' ? 'Synced' : 'Pending'}
+                      </span>
+                    </div>
+
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (confirm(`Are you sure you want to delete transaction ${tx.transaction_number}? This will automatically reverse its balance impact.`)) {
+                          try {
+                            await deleteTransaction(tx.id);
+                          } catch (err) {
+                            alert(err instanceof Error ? err.message : 'Failed to delete transaction.');
+                          }
+                        }
+                      }}
+                      type="button"
+                      className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 active:scale-90 transition-all rounded-lg"
+                      title="Delete Transaction"
+                    >
+                      <Trash2 className="w-4 h-4 stroke-[2.5]" />
+                    </button>
                   </div>
                 </div>
               );
