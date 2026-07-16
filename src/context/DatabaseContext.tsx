@@ -40,6 +40,7 @@ interface DatabaseContextType {
   // Setup
   finishSetup: (openingCash: number, walletBalances: { name: string; balance: number }[]) => Promise<void>;
   pullLatest: () => Promise<void>;
+  runSyncWorker: () => Promise<void>;
   wipeAllData: () => Promise<void>;
 }
 
@@ -167,12 +168,11 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       currentBal = runBal;
 
       if (entry.previous_balance !== prevBal || entry.running_balance !== runBal) {
+        // BUG 11 FIX: running_balance is a derived field — update locally only, do NOT queue for sync
         await db.wallet_ledger.update(entry.id, {
           previous_balance: prevBal,
           running_balance: runBal
         });
-        const updatedEntry = { ...entry, previous_balance: prevBal, running_balance: runBal };
-        await queueSync('wallet_ledger', 'UPDATE', entry.id, updatedEntry);
       }
     }
   };
@@ -199,12 +199,11 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       currentCash = runCash;
 
       if (entry.previous_cash !== prevCash || entry.running_cash !== runCash) {
+        // BUG 11 FIX: running_cash is a derived field — update locally only, do NOT queue for sync
         await db.cash_ledger.update(entry.id, {
           previous_cash: prevCash,
           running_cash: runCash
         });
-        const updatedEntry = { ...entry, previous_cash: prevCash, running_cash: runCash };
-        await queueSync('cash_ledger', 'UPDATE', entry.id, updatedEntry);
       }
     }
   };
@@ -389,9 +388,9 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (!isOnline || !isSupabaseConfigured() || !supabase) return;
 
     try {
-      // Check if queue has pending syncs first, do not pull to prevent conflicts
-      const count = await db.sync_queue.count();
-      if (count > 0) return;
+      // BUG 8 FIX: Do NOT block pull on pending queue items.
+      // Push (runSyncWorker) and Pull (pullLatest) are independent operations.
+      // Blocking pull while push fails creates a permanent deadlock.
 
       // 1. Pull settings
       const { data: sData } = await supabase.from('settings').select('*');
@@ -625,31 +624,38 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         await queueSync('wallets', 'UPDATE', finoWallet.id, finoWallet);
       }
 
-      // Self-heal: Ensure system wallets (Fino(S), Fino(N), SBI, PhonePe, Google Pay, Navi) exist in the database
-      const updatedWallets = await db.wallets.toArray();
-      const systemWallets = [
-        { name: 'Fino(S)', provider: 'FINO' as const, icon: 'fino', color: '#e21226', sort_order: 1 },
-        { name: 'Fino(N)', provider: 'FINO' as const, icon: 'fino', color: '#e21226', sort_order: 2 },
-        { name: 'SBI', provider: 'Other' as const, icon: 'landmark', color: '#0054a6', sort_order: 3 },
-        { name: 'PhonePe', provider: 'PhonePe' as const, icon: 'phonepe', color: '#5f259f', sort_order: 10 },
-        { name: 'Google Pay', provider: 'Google Pay' as const, icon: 'google-pay', color: '#1a73e8', sort_order: 11 },
-        { name: 'Navi', provider: 'Other' as const, icon: 'landmark', color: '#0d9488', sort_order: 12 }
-      ];
-      for (const sysW of systemWallets) {
-        if (!updatedWallets.some(w => w.name.toLowerCase().trim() === sysW.name.toLowerCase().trim())) {
-          const newW: Wallet = {
-            id: crypto.randomUUID(),
-            name: sysW.name,
-            provider: sysW.provider,
-            icon: sysW.icon,
-            color: sysW.color,
-            is_active: 1,
-            sort_order: sysW.sort_order,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          };
-          await db.wallets.add(newW);
-          await queueSync('wallets', 'INSERT', newW.id, newW);
+      // BUG 9 FIX: Only self-heal system wallets AFTER setup is complete.
+      // If we seed wallets before setup, finishSetup() creates them again with new UUIDs → duplicates.
+      const setupDoneSetting = await db.settings.get('setup_completed');
+      const isSetupDone = setupDoneSetting?.value === true;
+
+      if (isSetupDone) {
+        // Self-heal: Ensure system wallets (Fino(S), Fino(N), SBI, PhonePe, Google Pay, Navi) exist
+        const updatedWallets = await db.wallets.toArray();
+        const systemWallets = [
+          { name: 'Fino(S)', provider: 'FINO' as const, icon: 'fino', color: '#e21226', sort_order: 1 },
+          { name: 'Fino(N)', provider: 'FINO' as const, icon: 'fino', color: '#e21226', sort_order: 2 },
+          { name: 'SBI', provider: 'Other' as const, icon: 'landmark', color: '#0054a6', sort_order: 3 },
+          { name: 'PhonePe', provider: 'PhonePe' as const, icon: 'phonepe', color: '#5f259f', sort_order: 10 },
+          { name: 'Google Pay', provider: 'Google Pay' as const, icon: 'google-pay', color: '#1a73e8', sort_order: 11 },
+          { name: 'Navi', provider: 'Other' as const, icon: 'landmark', color: '#0d9488', sort_order: 12 }
+        ];
+        for (const sysW of systemWallets) {
+          if (!updatedWallets.some(w => w.name.toLowerCase().trim() === sysW.name.toLowerCase().trim())) {
+            const newW: Wallet = {
+              id: crypto.randomUUID(),
+              name: sysW.name,
+              provider: sysW.provider,
+              icon: sysW.icon,
+              color: sysW.color,
+              is_active: 1,
+              sort_order: sysW.sort_order,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            };
+            await db.wallets.add(newW);
+            await queueSync('wallets', 'INSERT', newW.id, newW);
+          }
         }
       }
 
@@ -1394,17 +1400,27 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         await queueSync('wallet_ledger', 'INSERT', sourceEntry.id, sourceEntry);
       }
 
+      // BUG 4 FIX: Capture dest balance BEFORE writing dest entry to avoid race condition.
+      // Previously the code read from db AFTER source entry was written, which could pick up
+      // the source debit in a same-timestamp scenario.
+      let destPrevCash = 0;
+      let destPrevWBal = 0;
+      if (destWalletId === 'CASH') {
+        const latestDestCash = await db.cash_ledger.orderBy('created_at').last();
+        destPrevCash = latestDestCash?.running_cash || 0;
+      } else {
+        const latestDestW = await db.wallet_ledger.where('wallet_id').equals(destWalletId).sortBy('created_at');
+        destPrevWBal = latestDestW.length > 0 ? latestDestW[latestDestW.length - 1].running_balance : 0;
+      }
+
       // 4. Write Credit Ledger Entry
       if (destWalletId === 'CASH') {
-        const latestCash = await db.cash_ledger.orderBy('created_at').last();
-        const prevCash = latestCash?.running_cash || 0;
-
         const destEntry: CashLedger = {
           id: crypto.randomUUID(),
           transaction_id: transactionId,
-          previous_cash: prevCash,
+          previous_cash: destPrevCash,
           amount: amount,
-          running_cash: prevCash + amount,
+          running_cash: destPrevCash + amount,
           ledger_type: 'transfer',
           notes: destNotes,
           created_at: nowStr
@@ -1412,16 +1428,13 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         await db.cash_ledger.add(destEntry);
         await queueSync('cash_ledger', 'INSERT', destEntry.id, destEntry);
       } else {
-        const latestW = await db.wallet_ledger.where('wallet_id').equals(destWalletId).sortBy('created_at');
-        const prevW = latestW.length > 0 ? latestW[latestW.length - 1].running_balance : 0;
-
         const destEntry: WalletLedger = {
           id: crypto.randomUUID(),
           wallet_id: destWalletId,
           transaction_id: transactionId,
-          previous_balance: prevW,
+          previous_balance: destPrevWBal,
           amount: amount,
-          running_balance: prevW + amount,
+          running_balance: destPrevWBal + amount,
           ledger_type: 'transfer',
           notes: destNotes,
           created_at: nowStr
@@ -1739,15 +1752,18 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       // 4. Map relational service rules based on newly created wallets
       const allServices = await db.services.toArray();
-      const finoWalletId = createdWalletMap['Fino Wallet'] || createdWalletMap['Fino'];
+      // BUG 2 FIX: Look up Fino(S) as primary key name (was looking for old 'Fino Wallet')
+      const finoWalletId = createdWalletMap['Fino(S)'] || createdWalletMap['Fino Wallet'] || createdWalletMap['Fino'];
 
       for (const svc of allServices) {
-        // If Recharge, require wallet selection (rule is DEBIT WALLET, but wallet_id is NULL)
+        // If Recharge, require wallet selection — user picks wallet at transaction time
         if (svc.type.includes('recharge')) {
+          // BUG 3 FIX: wallet_id must be null so user selection is respected.
+          // Previously static wallet_id was overriding requires_wallet_selection=1.
           const rule: ServiceWalletRule = {
             id: crypto.randomUUID(),
             service_id: svc.id,
-            wallet_id: createdWalletMap[svc.name.replace(' Recharge', ' Wallet')] || createdWalletMap[svc.name.replace(' Recharge', ' LAPU')] || null,
+            wallet_id: null, // User selects at transaction time (requires_wallet_selection = 1)
             action: 'DEBIT',
             direction: 'WALLET',
             priority: 0,
@@ -1921,6 +1937,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         updateServiceConfig,
         finishSetup,
         pullLatest,
+        runSyncWorker,
         wipeAllData
       }}
     >

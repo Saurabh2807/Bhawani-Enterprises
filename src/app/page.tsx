@@ -146,7 +146,7 @@ const WalletIcon = ({ name, icon, color }: { name: string; icon?: string | null;
 };
 
 export default function HomePage() {
-  const { isLoaded, settings, services, wallets, cashBalance, walletBalances, syncStatus, pullLatest, transactions } = useDatabase();
+  const { isLoaded, settings, services, wallets, cashBalance, walletBalances, syncStatus, pullLatest, runSyncWorker, transactions } = useDatabase();
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
   const [manualSyncing, setManualSyncing] = useState<boolean>(false);
   const [hideBalances, setHideBalances] = useState<boolean>(() => {
@@ -223,10 +223,16 @@ export default function HomePage() {
   }
 
   const handleManualSyncClick = async () => {
-    if (manualSyncing || syncStatus === 'pending') return;
+    if (manualSyncing) return;
     setManualSyncing(true);
     try {
-      await pullLatest();
+      // BUG 5 FIX: When pending, push the queue first (runSyncWorker), then pull.
+      // Previously blocking on 'pending' meant user could never force a retry.
+      if (syncStatus === 'pending') {
+        await runSyncWorker();
+      } else {
+        await pullLatest();
+      }
     } catch (err) {
       console.error('Failed manual sync:', err);
     } finally {
@@ -258,9 +264,9 @@ export default function HomePage() {
           {/* Offline Sync State Display */}
           <button
             onClick={handleManualSyncClick}
-            disabled={manualSyncing || syncStatus === 'pending'}
+            disabled={manualSyncing}
             className="flex items-center gap-1.5 px-3 py-1 bg-white/10 backdrop-blur-sm rounded-full text-xs font-bold text-white hover:bg-white/20 active:scale-95 transition-all outline-none border border-transparent focus:outline-none"
-            title="Force Pull Sync from Server"
+            title="Tap to sync now"
           >
             {manualSyncing ? (
               <>

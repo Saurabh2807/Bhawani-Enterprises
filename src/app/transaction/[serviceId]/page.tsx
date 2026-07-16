@@ -50,7 +50,8 @@ export default function TransactionPage({ params }: { params: Promise<{ serviceI
       } else if (type === 'airtel_recharge') {
         matchedWallet = wallets.find((w) => w.name.toLowerCase().includes('airtel') || w.name.toLowerCase().includes('lapu'));
       } else if (type === 'vi_recharge') {
-        matchedWallet = wallets.find((w) => w.name.toLowerCase().includes('vi'));
+        // BUG 6 FIX: Use word boundary match \bvi\b to avoid matching 'navi', 'service' etc.
+        matchedWallet = wallets.find((w) => /\bvi\b/i.test(w.name));
       } else if (type === 'bsnl_recharge') {
         matchedWallet = wallets.find((w) => w.name.toLowerCase().includes('bsnl'));
       } else if (type === 'aeps_withdrawal' || type === 'money_transfer' || type === 'balance_enquiry') {
@@ -165,8 +166,8 @@ export default function TransactionPage({ params }: { params: Promise<{ serviceI
             </div>
           )}
 
-          {/* Wallet Selector */}
-          {service.type !== 'balance_enquiry' || true ? (
+          {/* Wallet Selector — show when service requires wallet selection */}
+          {service.requires_wallet_selection === 1 ? (
             <div className="space-y-2">
               <Label htmlFor="wallet" className="text-slate-700 font-extrabold text-sm">
                 Select Wallet
