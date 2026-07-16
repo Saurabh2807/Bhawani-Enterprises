@@ -126,7 +126,22 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Convert rawSettings array to key-value record
   const settings = React.useMemo(() => {
     return rawSettings.reduce<Record<string, unknown>>((acc, item) => {
-      acc[item.key] = item.value;
+      let val = item.value;
+      if (typeof val === 'string') {
+        const trimmed = val.trim();
+        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+          try {
+            val = JSON.parse(trimmed);
+          } catch (e) {
+            // Keep string on parse failure
+          }
+        } else if (trimmed === 'true') {
+          val = true;
+        } else if (trimmed === 'false') {
+          val = false;
+        }
+      }
+      acc[item.key] = val;
       return acc;
     }, {});
   }, [rawSettings]);
@@ -727,7 +742,15 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Suggested Commission Engine
   const getSuggestedCommission = useCallback((serviceType: string, amount: number): number => {
-    const rules = (settings.commission_rules as any) || {
+    let rawRules = settings.commission_rules;
+    if (typeof rawRules === 'string') {
+      try {
+        rawRules = JSON.parse(rawRules);
+      } catch (e) {
+        rawRules = null;
+      }
+    }
+    const rules = (rawRules as any) || {
       recharge_default: 2,
       electricity_default: 5,
       aeps_slabs: [],

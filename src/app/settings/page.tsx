@@ -99,12 +99,20 @@ export default function SettingsPage() {
 
   React.useEffect(() => {
     if (settings.commission_rules) {
-      const rules = settings.commission_rules as any;
-      setRechargeDefault((rules.recharge_default ?? 2).toString());
-      setElectricityDefault((rules.electricity_default ?? 5).toString());
-      setAepsSlabs(rules.aeps_slabs || []);
-      setTransferSlabs(rules.transfer_slabs || []);
-      setLoanSlabs(rules.loan_slabs || []);
+      let rules: any = settings.commission_rules;
+      if (typeof rules === 'string') {
+        try {
+          rules = JSON.parse(rules);
+        } catch (e) {
+          rules = null;
+        }
+      }
+      const r = rules || {};
+      setRechargeDefault((r.recharge_default ?? 2).toString());
+      setElectricityDefault((r.electricity_default ?? 5).toString());
+      setAepsSlabs(r.aeps_slabs || []);
+      setTransferSlabs(r.transfer_slabs || []);
+      setLoanSlabs(r.loan_slabs || []);
     }
   }, [settings.commission_rules]);
 
