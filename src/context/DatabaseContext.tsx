@@ -323,12 +323,14 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           if (item.table === 'transactions') {
             delete syncData.created_local;
           } else if (item.table === 'wallet_ledger') {
+            // NOTE: ledger_type IS a real Supabase column (NOT NULL) — do NOT delete it
+            // Only delete fields that don't exist in the remote schema
             delete syncData.notes;
-            delete syncData.ledger_type;
             delete syncData.created_by;
           } else if (item.table === 'cash_ledger') {
+            // NOTE: ledger_type IS a real Supabase column (NOT NULL) — do NOT delete it
+            // Only delete fields that don't exist in the remote schema
             delete syncData.notes;
-            delete syncData.ledger_type;
             delete syncData.created_by;
           } else if (item.table === 'wallets') {
             delete syncData.balance;
