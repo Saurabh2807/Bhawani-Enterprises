@@ -772,7 +772,8 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       db.wallet_ledger,
       db.cash_ledger,
       db.service_wallet_rules,
-      db.sync_queue
+      db.sync_queue,
+      db.wallets
     ], async () => {
       await db.transactions.add(newTx);
       await queueSync('transactions', 'INSERT', transactionId, newTx);
@@ -940,7 +941,10 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       db.transactions,
       db.wallet_ledger,
       db.cash_ledger,
-      db.sync_queue
+      db.sync_queue,
+      db.services,
+      db.service_wallet_rules,
+      db.wallets
     ], async () => {
       // Update transaction fields
       const updatedTx = {

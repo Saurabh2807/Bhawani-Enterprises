@@ -152,6 +152,19 @@ class BhawaniDB extends Dexie {
       sync_queue: '++id, table, action, timestamp'
     });
 
+    // Schema version 3 (Compounded index in sync_queue)
+    this.version(3).stores({
+      wallets: 'id, name, provider, is_active, sort_order',
+      services: 'id, type, is_active, sort_order',
+      service_wallet_rules: 'id, service_id, wallet_id',
+      wallet_transfers: 'id, source_wallet_id, destination_wallet_id, created_at',
+      transactions: 'id, service_id, wallet_id, transfer_id, transaction_number, transaction_date, synced, is_deleted, created_at',
+      wallet_ledger: 'id, wallet_id, transaction_id, ledger_type, created_at',
+      cash_ledger: 'id, transaction_id, ledger_type, created_at',
+      settings: 'key',
+      sync_queue: '++id, [table+key], table, action, timestamp'
+    });
+
     // Schema version 4 (Profit & Commission Upgrade)
     this.version(4).stores({
       wallets: 'id, name, provider, is_active, sort_order',
