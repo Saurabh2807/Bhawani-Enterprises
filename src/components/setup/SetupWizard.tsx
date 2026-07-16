@@ -11,9 +11,11 @@ export const SetupWizard = () => {
   const { finishSetup } = useDatabase();
   const [cash, setCash] = useState<string>('');
   const [wallets, setWallets] = useState<{ name: string; balance: string }[]>([
-    { name: 'Fino Wallet', balance: '' },
+    { name: 'Fino(S)', balance: '' },
+    { name: 'Fino(N)', balance: '' },
     { name: 'Jio Wallet', balance: '' },
-    { name: 'Airtel LAPU', balance: '' }
+    { name: 'Airtel LAPU', balance: '' },
+    { name: 'SBI', balance: '' }
   ]);
   const [customWalletName, setCustomWalletName] = useState<string>('');
   const [customWalletBalance, setCustomWalletBalance] = useState<string>('');

@@ -90,20 +90,35 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, [queueLength]);
 
   // Live queries for tables
-  const wallets = useLiveQuery(async () => {
+  const walletsRaw = useLiveQuery(async () => {
     const list = await db.wallets.where('is_active').equals(1).toArray();
     return list.sort((a, b) => a.sort_order - b.sort_order);
-  }) || [];
-  const allWalletsForAdmin = useLiveQuery(() => db.wallets.orderBy('sort_order').toArray()) || [];
-  const services = useLiveQuery(async () => {
+  });
+  const wallets = walletsRaw || [];
+
+  const allWalletsForAdminRaw = useLiveQuery(() => db.wallets.orderBy('sort_order').toArray());
+  const allWalletsForAdmin = allWalletsForAdminRaw || [];
+
+  const servicesRaw = useLiveQuery(async () => {
     const list = await db.services.where('is_active').equals(1).toArray();
     return list.sort((a, b) => a.sort_order - b.sort_order);
-  }) || [];
-  const allServicesForAdmin = useLiveQuery(() => db.services.orderBy('sort_order').toArray()) || [];
-  const transactions = useLiveQuery(() => db.transactions.orderBy('created_at').reverse().toArray()) || [];
-  const rawSettings = useLiveQuery(() => db.settings.toArray()) || [];
-  const walletLedger = useLiveQuery(() => db.wallet_ledger.toArray()) || [];
-  const cashLedger = useLiveQuery(() => db.cash_ledger.toArray()) || [];
+  });
+  const services = servicesRaw || [];
+
+  const allServicesForAdminRaw = useLiveQuery(() => db.services.orderBy('sort_order').toArray());
+  const allServicesForAdmin = allServicesForAdminRaw || [];
+
+  const transactionsRaw = useLiveQuery(() => db.transactions.orderBy('created_at').reverse().toArray());
+  const transactions = transactionsRaw || [];
+
+  const rawSettingsRaw = useLiveQuery(() => db.settings.toArray());
+  const rawSettings = rawSettingsRaw || [];
+
+  const walletLedgerRaw = useLiveQuery(() => db.wallet_ledger.toArray());
+  const walletLedger = walletLedgerRaw || [];
+
+  const cashLedgerRaw = useLiveQuery(() => db.cash_ledger.toArray());
+  const cashLedger = cashLedgerRaw || [];
 
   // Convert rawSettings array to key-value record
   const settings = React.useMemo(() => {
@@ -1818,6 +1833,8 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         await supabase.from('wallet_transfers').delete().neq('id', '00000000-0000-0000-0000-000000000000');
         await supabase.from('wallet_ledger').delete().neq('id', '00000000-0000-0000-0000-000000000000');
         await supabase.from('cash_ledger').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('wallets').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('service_wallet_rules').delete().neq('id', '00000000-0000-0000-0000-000000000000');
         await supabase.from('settings').delete().in('key', ['setup_completed', 'shop_name', 'shop_logo']);
       } catch (err) {
         console.error('Failed to clear Supabase database:', err);
@@ -1829,6 +1846,8 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     await db.wallet_transfers.clear();
     await db.wallet_ledger.clear();
     await db.cash_ledger.clear();
+    await db.wallets.clear();
+    await db.service_wallet_rules.clear();
     await db.sync_queue.clear();
 
     // Reset settings in Dexie and state
@@ -1868,7 +1887,15 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         cashBalance,
         walletBalances,
         settings,
-        isLoaded,
+        isLoaded: isLoaded &&
+                  walletsRaw !== undefined &&
+                  allWalletsForAdminRaw !== undefined &&
+                  servicesRaw !== undefined &&
+                  allServicesForAdminRaw !== undefined &&
+                  transactionsRaw !== undefined &&
+                  rawSettingsRaw !== undefined &&
+                  walletLedgerRaw !== undefined &&
+                  cashLedgerRaw !== undefined,
         saveTransaction,
         deleteTransaction,
         restoreTransaction,
