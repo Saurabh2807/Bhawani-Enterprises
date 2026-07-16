@@ -302,6 +302,22 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         if (item.action === 'INSERT' || item.action === 'UPDATE') {
           // Clean data if needed
           const syncData = { ...(item.data as Record<string, unknown>) };
+          
+          // Remove local-only fields that do not exist in remote PostgreSQL tables
+          if (item.table === 'transactions') {
+            delete syncData.created_local;
+          } else if (item.table === 'wallet_ledger') {
+            delete syncData.notes;
+            delete syncData.ledger_type;
+            delete syncData.created_by;
+          } else if (item.table === 'cash_ledger') {
+            delete syncData.notes;
+            delete syncData.ledger_type;
+            delete syncData.created_by;
+          } else if (item.table === 'wallets') {
+            delete syncData.balance;
+          }
+
           // Convert boolean numbers to true boolean for PG database compatibility
           if ('is_active' in syncData) syncData.is_active = syncData.is_active === 1;
           if ('requires_wallet_selection' in syncData) syncData.requires_wallet_selection = syncData.requires_wallet_selection === 1;
@@ -652,18 +668,24 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     const interval = setInterval(async () => {
       try {
-        // Only pull if there are no local pending modifications to prevent conflicts
+        // 1. Process sync queue first if it has items
         const count = await db.sync_queue.count();
-        if (count === 0) {
+        if (count > 0) {
+          await runSyncWorker();
+        }
+
+        // 2. Only pull if there are no local pending modifications to prevent conflicts
+        const finalCount = await db.sync_queue.count();
+        if (finalCount === 0) {
           await pullLatest();
         }
       } catch (err) {
-        console.error('Error in periodic sync pull:', err);
+        console.error('Error in periodic sync pull/push:', err);
       }
     }, 10000); // 10 seconds
 
     return () => clearInterval(interval);
-  }, [isOnline, isAuthenticated, pullLatest]);
+  }, [isOnline, isAuthenticated, pullLatest, runSyncWorker]);
 
   // Suggested Commission Engine
   const getSuggestedCommission = useCallback((serviceType: string, amount: number): number => {
