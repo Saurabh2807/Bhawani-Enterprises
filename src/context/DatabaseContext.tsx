@@ -9,6 +9,7 @@ import { useAuth } from '@/context/AuthContext';
 interface DatabaseContextType {
   isOnline: boolean;
   syncStatus: 'synced' | 'pending' | 'local_only';
+  lastSyncError: string | null;
   wallets: Wallet[];
   services: Service[];
   transactions: Transaction[];
@@ -61,6 +62,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return true;
   });
   const [isLoaded, setIsLoaded] = useState<boolean>(false);
+  const [lastSyncError, setLastSyncError] = useState<string | null>(null);
 
   // Monitor online status
   useEffect(() => {
@@ -343,19 +345,24 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           if (!error) {
             success = true;
           } else {
-            console.error(`Sync insert/update failed for ${item.table} (${item.key}):`, error);
+            const msg = `Upsert failed for table '${item.table}' (${item.key}): ${error.message} (${error.code || ''})`;
+            console.error(msg, error);
+            setLastSyncError(msg);
           }
         } else if (item.action === 'DELETE') {
           const { error } = await supabase.from(item.table).delete().eq(pkCol, item.key);
           if (!error) {
             success = true;
           } else {
-            console.error(`Sync delete failed for ${item.table} (${item.key}):`, error);
+            const msg = `Delete failed for table '${item.table}' (${item.key}): ${error.message} (${error.code || ''})`;
+            console.error(msg, error);
+            setLastSyncError(msg);
           }
         }
 
         if (success) {
           await db.sync_queue.delete(item.id!);
+          setLastSyncError(null);
           
           // If transaction synced, update its state locally
           if (item.table === 'transactions') {
@@ -371,7 +378,9 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
       }
     } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown sync error';
       console.error('Error in sync worker:', err);
+      setLastSyncError(msg);
     }
   }, [isOnline]);
 
@@ -1887,6 +1896,7 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         cashBalance,
         walletBalances,
         settings,
+        lastSyncError,
         isLoaded: isLoaded &&
                   walletsRaw !== undefined &&
                   allWalletsForAdminRaw !== undefined &&

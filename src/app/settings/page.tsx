@@ -46,7 +46,8 @@ export default function SettingsPage() {
     restoreTransaction,
     syncStatus,
     isOnline,
-    wipeAllData
+    wipeAllData,
+    lastSyncError
   } = useDatabase();
 
   // Active Collapsible Accordion sections
@@ -946,6 +947,22 @@ export default function SettingsPage() {
         {/* 5. System Info & Logs Panel */}
         <div className="mt-4 p-4 border border-dashed border-slate-200 rounded-2xl space-y-3">
           <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">System Administration</h4>
+          
+          {lastSyncError && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-1 text-amber-900">
+              <h5 className="text-[10px] font-extrabold uppercase tracking-wide flex items-center gap-1.5 text-amber-700">
+                <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                Active Sync Error (Database)
+              </h5>
+              <p className="text-[11px] font-medium leading-relaxed font-mono select-all overflow-x-auto whitespace-pre-wrap">
+                {lastSyncError}
+              </p>
+              <p className="text-[9px] text-amber-600 font-bold mt-1">
+                Tip: Run the latest SQL migration script in your Supabase dashboard SQL editor to fix columns.
+              </p>
+            </div>
+          )}
+
           <div className="flex gap-2">
             <button
               onClick={() => logout()}
