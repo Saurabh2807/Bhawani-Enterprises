@@ -388,14 +388,20 @@ export const DatabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (!isOnline || !isSupabaseConfigured() || !supabase) return;
 
     try {
-      // BUG 8 FIX: Do NOT block pull on pending queue items.
-      // Push (runSyncWorker) and Pull (pullLatest) are independent operations.
-      // Blocking pull while push fails creates a permanent deadlock.
+      // Guard: if there are pending local writes, do not pull remote data to prevent
+      // overwriting uncommitted local changes. Push and pull share the same data tables.
+      const count = await db.sync_queue.count();
+      if (count > 0) return;
 
-      // 1. Pull settings
+      // 1. Pull settings — but NEVER overwrite setup_completed from remote if it's false locally.
+      // This prevents: fresh factory reset → app pulls old setup_completed:true from Supabase → skips setup wizard.
       const { data: sData } = await supabase.from('settings').select('*');
       if (sData) {
+        const localSetupSetting = await db.settings.get('setup_completed');
+        const localSetupDone = localSetupSetting?.value === true;
         for (const item of sData) {
+          // If local setup is not done, do not let remote overwrite setup_completed
+          if (item.key === 'setup_completed' && !localSetupDone) continue;
           await db.settings.put({
             key: item.key,
             value: item.value,
