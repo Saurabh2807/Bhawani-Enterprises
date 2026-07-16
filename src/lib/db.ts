@@ -127,7 +127,32 @@ class BhawaniDB extends Dexie {
   constructor() {
     super('BhawaniDB');
     
-    // Define database stores (v4 schema)
+    // Schema version 1 (Initial schema)
+    this.version(1).stores({
+      wallets: 'id, name, is_active, sort_order',
+      services: 'id, type, is_active, sort_order',
+      service_wallet_rules: 'id, service_id, wallet_id',
+      transactions: 'id, service_id, wallet_id, transaction_number, synced, deleted_at, created_at',
+      wallet_ledger: 'id, wallet_id, transaction_id, ledger_type, created_at',
+      cash_ledger: 'id, transaction_id, ledger_type, created_at',
+      settings: 'key',
+      sync_queue: '++id, table, action, timestamp'
+    });
+
+    // Schema version 2 (Adding wallet_transfers and additional fields)
+    this.version(2).stores({
+      wallets: 'id, name, provider, is_active, sort_order',
+      services: 'id, type, is_active, sort_order',
+      service_wallet_rules: 'id, service_id, wallet_id',
+      wallet_transfers: 'id, source_wallet_id, destination_wallet_id, created_at',
+      transactions: 'id, service_id, wallet_id, transfer_id, transaction_number, transaction_date, synced, is_deleted, created_at',
+      wallet_ledger: 'id, wallet_id, transaction_id, ledger_type, created_at',
+      cash_ledger: 'id, transaction_id, ledger_type, created_at',
+      settings: 'key',
+      sync_queue: '++id, table, action, timestamp'
+    });
+
+    // Schema version 4 (Profit & Commission Upgrade)
     this.version(4).stores({
       wallets: 'id, name, provider, is_active, sort_order',
       services: 'id, type, is_active, sort_order',
